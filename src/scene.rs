@@ -172,7 +172,8 @@ impl Scene {
             .fold(0u64, |acc, &token| acc.wrapping_add(token as u64))
             .wrapping_add(self.model.seed());
         // Choose the type of turn to infer based on the seed
-        if seed % 2 == 0 {
+        // Dialogue turns are 1.5x as likely as story turns
+        if seed % 5 < 3 {
             // Choose a character to speak. If the character matches self.previous_turn.speaker(), choose another character.
             for attempt in 0..self.characters.len() {
                 let character = self.characters
