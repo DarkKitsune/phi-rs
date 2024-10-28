@@ -1,0 +1,16 @@
+[package]
+name = "phi-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.91"
+candle-core = {features = ["cuda"], version = "0.7.2"}
+candle-nn = {features = ["cuda"], version = "0.7.2"}
+candle-transformers = {features = ["cuda"], version = "0.7.2"}
+hf-hub = "0.3.2"
+tokenizers = "0.20.1"
+serde_json = "1.0.132"
+itertools = "0.13.0"
