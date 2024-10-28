@@ -1,0 +1,1 @@
+Experimental text generation projection, based on Candle. Runs the teknium/Phi-Hermes-1.3B model locally.

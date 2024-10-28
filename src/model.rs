@@ -199,36 +199,45 @@ impl Model {
     /// based on the context
     pub(crate) fn pick_item(
         &self,
-        items: impl IntoIterator<Item = impl AsRef<str>>,
-        item_type: impl Display,
         context: &TokenString,
+        desired_traits: Option<&TokenString>,
+        items: impl IntoIterator<Item = impl AsRef<str>>,
         seed: u64,
-        max_tokens: usize,
     ) -> Result<String> {
-        let items: Vec<String> = items.into_iter().map(|item| item.as_ref().trim().into()).collect();
+        let items: Vec<String> = items.into_iter().map(|item| item.as_ref().trim().to_lowercase()).collect();
 
         // Start the prompt with the context
         let mut prompt = self.tokenize("### Context:\n");
         prompt.push_many(context);
 
         // Add the items to the prompt, in brackets to help guide the model in the next step
-        prompt.push_str(format!("\n### {} List:\n", item_type).as_str());
+        prompt.push_str("\n### Items:\n");
         for item in &items {
             prompt.push_str(&format!("[{}]\n", item));
         }
-        
-        // Ask the model to pick the most appropriate item, and guide it with a bracket
-        prompt.push_str("\n### Pick the most appropriate item:\n[");
 
-        // Start inference
-        let mut response = None;
+        // Add the desired trait to the prompt
+        if let Some(desired_traits) = desired_traits {
+            prompt.push_str("\n### Desired Traits:\n");
+            prompt.push_many(desired_traits);
+        }
+        
+        // Ask the model to pick the most appropriate item
+        prompt.push_str("\n### Instruction:\nPick the most appropriate item from the list above.\n");
+
+        // Start the response with a bracket to guide the model
+        prompt.push_str("\n### Response:\n[");
 
         // Keep trying until the model picks an item, incrementing the seed each time
+        // After the first iteration, temperature is set to 1.0 to encourage diversity
+        let mut response = None;
+        let mut temperature = 0.0;
         for seed in seed.. {
+            // Clone the items
             let mut possible_items = items.clone();
             
             // Begin inference
-            let mut inference = self.infer_iter(prompt.clone(), seed, Some(0.5), Some(0.9), 1.2, 64)?;
+            let mut inference = self.infer_iter(prompt.clone(), seed, Some(temperature), None, 0.0, 0)?;
             
             // Infer while possible_items > 1
             let mut inferred = String::new();
@@ -239,8 +248,8 @@ impl Model {
                     inferred.push_str(&self.detokenize(&[next_token]));
                     
                     // Remove the item from the list if it doesn't begin with the inferred string
-                    let trimmed = inferred.trim();
-                    possible_items.retain(|item| item.starts_with(&trimmed));
+                    let formatted = inferred.trim().to_lowercase();
+                    possible_items.retain(|item| item.starts_with(&formatted));
                 }
                 // If there are no more tokens, empty the possible items and break
                 else {
@@ -253,6 +262,11 @@ impl Model {
             if possible_items.len() == 1 {
                 response = Some(possible_items.pop().unwrap());
                 break;
+            }
+
+            // If the temperature is 0.0, set it to 0.5 and try again
+            if temperature == 0.0 {
+                temperature = 1.0;
             }
         }
         
@@ -320,7 +334,7 @@ impl InferIter {
         let logits = logits.squeeze(0).unwrap().to_dtype(DType::F32).unwrap();
 
         // Apply the repeat penalty
-        let logits = if self.repeat_penalty == 1. {
+        let logits = if self.repeat_penalty == 1.0 || self.repeat_last_n == 0 {
             logits
         } else {
             // Apply the repeat penalty to the last repeat_last_n tokens
