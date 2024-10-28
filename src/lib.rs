@@ -6,13 +6,14 @@ pub mod token_string;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crafter::{Crafter, CrafterExample};
     use model::Model;
 
-    /*#[test]
+    #[test]
     fn scene() {
         const SETTING: &str = "In a mysterious maze-like dungeon full of deadly traps and valuable treasure. A group of adventurers are exploring the dungeon.";
-        const CHARACTERS: &[&str] = &["James", "Raven"];
-        const SEED: u64 = 1234;
+        const CHARACTERS: &[&str] = &["James", "Raven", "Jack", "Luna"];
+        const SEED: u64 = 6789;
 
         // Create the model
         let model = Model::new(SEED, true).unwrap();
@@ -24,8 +25,8 @@ mod tests {
         println!("Setting: {}", SETTING);
         println!("Characters: {:?}", CHARACTERS);
 
-        // Infer a few turns
-        for _ in 0..20 {
+        // Infer enough turns to make memory compression happen
+        for _ in 0..50 {
             // Infer a story turn
             let story_turn = scene.infer_any(50);
 
@@ -71,7 +72,7 @@ mod tests {
         println!("politics + sword + bomb = {}", result);
         let result = crafter.craft(&["war", "tea"]);
         println!("war + tea = {}", result);
-    }*/
+    }
 
     #[test]
     fn pick_items() {
