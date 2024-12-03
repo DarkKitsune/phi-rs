@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use itertools::Itertools;
 
-use crate::model::{InferIter, Model};
+use crate::model::Model;
 
 /// Use a Model to infer the results of crafting
 /// two or more items together.
@@ -19,7 +19,7 @@ impl Crafter {
             .into_iter()
             .map(|example| {
                 format!(
-                    "When you combine {} you get {}.",
+                    "Combining {} results in {}",
                     example.items, example.result
                 )
             })
@@ -28,19 +28,24 @@ impl Crafter {
         Self { model, temp, examples }
     }
 
-    pub fn craft(&self, items: impl IntoIterator<Item = impl Display>, seed: u64) -> InferIter {
+    pub fn craft(&self, items: impl IntoIterator<Item = impl Display>, seed: u64) -> String {
+        // Join the items with a "] + [" separator
+        let joined_items = items.into_iter().join("] + [");
+
         // Generate the instruction
-        let instruction = format!("Given the examples, what might you get by combining [{}]?", items.into_iter().join("] + ["));
+        let instruction = format!("What might you get by combining [{}]? Be creative and use the examples.", joined_items);
 
         // Put examples in extra information
-        let mut extra = HashMap::new();
-        extra.insert("Examples", self.examples.as_ref());
+        let mut extra: HashMap<&str, &str> = HashMap::new();
+        extra.insert("Known Combinations", &self.examples);
 
-        // Start the response off with a [ character
-        extra.insert("Response", "[");
+        // Start the response off to help the model
+        let response_prefix = format!("If you combine [{}] you get: [", joined_items);
+        extra.insert("Response", &response_prefix);
 
-        // Infer the result
-        self.model.instruct(&instruction, Some(&extra), seed, self.temp, Some(0.9), 1.0, 0)
+        // Gather the results until a ] is found
+        self.model.instruct(&instruction, Some(&extra), seed, Some(self.temp.unwrap_or(0.0)), None, 1.0, 0)
+            .complete_until("]")
     }
 }
 

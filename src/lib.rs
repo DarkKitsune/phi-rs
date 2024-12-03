@@ -22,25 +22,22 @@ mod tests {
             &[
                 CrafterExample::new(&["water", "fire"], "steam"),
                 CrafterExample::new(&["sugar", "water", "bee"], "honey"),
-                CrafterExample::new(&["weapon", "life"], "death"),
-                CrafterExample::new(&["light", "electricity"], "lightbulb"),
-                CrafterExample::new(&["bird", "stick", "stick"], "nest"),
                 CrafterExample::new(&["human", "hammer"], "construction worker"),
-                CrafterExample::new(&["staff", "book"], "grimoire"),
+                CrafterExample::new(&["earth", "water"], "mud"),
+                CrafterExample::new(&["clown", "tent"], "circus"),
+                CrafterExample::new(&["hope", "despair"], "life"),
             ],
         );
 
         // Craft some items
-        let result = crafter.craft(&["water", "cloud"], SEED).collect();
+        let result = crafter.craft(&["water", "cloud"], SEED);
         println!("water + cloud = {}", result);
-        let result = crafter.craft(&["dragon", "wizard"], SEED).collect();
-        println!("dragon + wizard = {}", result);
-        /*let result = crafter.craft(&["demons", "angels"], SEED).collect();
-        println!("demons + angels = {}", result);
-        let result = crafter.craft(&["politics", "sword", "bomb"], SEED).collect();
+        let result = crafter.craft(&["evil", "good"], SEED);
+        println!("demons + good = {}", result);
+        let result = crafter.craft(&["politics", "sword", "bomb"], SEED);
         println!("politics + sword + bomb = {}", result);
-        let result = crafter.craft(&["war", "tea"], SEED).collect();
-        println!("war + tea = {}", result);*/
+        let result = crafter.craft(&["war", "a bottle of juice"], SEED);
+        println!("war + a bottle of juice = {}", result);
     }
 
     #[test]

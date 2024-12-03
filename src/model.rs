@@ -375,11 +375,28 @@ impl InferIter {
         Some(next_token)
     }
 
-    /// Run the iterator to completion and return the remaining tokens as a `TokenString`
-    pub fn collect(mut self) -> TokenString {
+    /// Run the iterator until completion and return the remaining tokens as a `TokenString`
+    pub fn complete(mut self) -> TokenString {
         let mut response = self.tokens.model.new_token_string();
         while let Some(token) = self.next_token() {
             response.push_token(token);
+        }
+
+        response
+    }
+
+    /// Run the iterator until completion or until `end_string` is generated
+    /// and return everything up to that point as a `String`
+    pub fn complete_until(mut self, end_string: impl AsRef<str>) -> String {
+        let end_string = end_string.as_ref();
+        let mut response = String::new();
+        while let Some(token) = self.next_token() {
+            let token_str = self.tokens.model.detokenize(&[token]);
+            if token_str.contains(end_string) {
+                response.push_str(token_str.split(end_string).next().unwrap());
+                break;
+            }
+            response.push_str(&token_str);
         }
 
         response
@@ -396,13 +413,13 @@ impl Iterator for InferIter {
 
 impl Into<TokenString> for InferIter {
     fn into(self) -> TokenString {
-        self.collect()
+        self.complete()
     }
 }
 
 impl Into<String> for InferIter {
     fn into(self) -> String {
-        self.collect().to_string()
+        self.complete().to_string()
     }
 }
 
