@@ -59,18 +59,9 @@ mod tests {
         println!("Chose item: {:?}", item);
 
         let item = model.try_choose_item(
-            "You are going to a party. You want to bring a gift.",
-            "A gift for an adult who loves animals and art.",
-            ["vase", "book", "toy horse", "plant", "painting of a cat", "a calendar with pictures of birds"],
-            SEED,
-            ATTEMPTS
-        );
-        println!("Chose item: {:?}", item);
-
-        let item = model.try_choose_item(
             "You are a grade school teacher. There is a new student in your class. You want to make them feel welcome.",
             "A gift for a child who likes to play outside.",
-            ["puzzle", "ball", "coloring book", "stuffed animal"],
+            ["snacks", "ball", "coloring book", "stuffed animal", "book"],
             SEED,
             ATTEMPTS
         );

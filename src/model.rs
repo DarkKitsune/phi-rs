@@ -242,7 +242,7 @@ impl Model {
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity
         let mut response = None;
-        let mut temperature = 0.0;
+        let mut temperature = 0.2;
         for seed in seed..seed + attempts as u64 {
             // Clone the items
             let mut possible_items = items.clone();
