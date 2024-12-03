@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
+use std::fmt::Display;
 use std::str::FromStr;
 
-use anyhow::{anyhow, Error as E, Result};
+use anyhow::{Error as E, Result};
 
 use candle_transformers::models::mixformer::{Config, MixFormerSequentialForCausalLM as MixFormer};
 
@@ -11,10 +10,9 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use hf_hub::api::sync::Api;
-use tokenizers::{Token, Tokenizer};
+use tokenizers::Tokenizer;
 
-use crate::scene::Scene;
-use crate::token_string::TokenString;
+use crate::token_string::{IntoTokenString, TokenString};
 
 pub const MAX_TOKENS: usize = 2048;
 
@@ -74,7 +72,7 @@ impl Model {
         TokenString::new(Vec::new(), self.clone())
     }
 
-    pub fn tokenize(&self, text: impl Display) -> TokenString {
+    pub fn tokenize_str(&self, text: impl Display) -> TokenString {
         // Tokenize the text
         let tokens = self.tokenizer.encode(text.to_string(), true).unwrap();
 
@@ -83,108 +81,14 @@ impl Model {
         TokenString::new(token_ids, self.clone())
     }
 
-    pub(crate) fn detokenize(&self, tokens: &[u32]) -> String {
+    pub fn tokenize(&self, text: impl IntoTokenString) -> TokenString {
+        text.into_token_string(self)
+    }
+
+    pub(crate) fn detokenize(&self, tokens: impl AsRef<[u32]>) -> String {
         // Decode the tokens into a string
-        let text = self.tokenizer.decode(tokens, true).map_err(E::msg).unwrap();
+        let text = self.tokenizer.decode(tokens.as_ref(), true).map_err(E::msg).unwrap();
         text
-    }
-
-    pub fn create_scene(
-        &self,
-        setting: impl Display,
-        starting_characters: &[impl Display],
-    ) -> Scene {
-        Scene::new(self.clone(), setting, starting_characters)
-    }
-
-    /// Return an iterator that can be used to perform inference
-    pub(crate) fn infer_iter(
-        &self,
-        prompt_tokens: TokenString,
-        seed: u64,
-        temp: Option<f64>,
-        top_p: Option<f64>,
-        repeat_penalty: f32,
-        repeat_last_n: usize,
-    ) -> Result<InferIter> {
-        // Add the model seed to the seed provided
-        let seed = seed.wrapping_add(self.seed);
-
-        // Fail if the prompt is empty
-        if prompt_tokens.is_empty() {
-            anyhow::bail!("prompt was empty")
-        }
-
-        // Create pipeline
-        let pipeline = MixFormer::new(&self.config, self.vb.clone())?;
-
-        // Create logits processor
-        let logits_processor = LogitsProcessor::new(seed, temp, top_p);
-
-        // Get the end of text token
-        let eos_token = match self.tokenizer.get_vocab(true).get("<|endoftext|>") {
-            Some(token) => *token,
-            None => anyhow::bail!("cannot find the endoftext token"),
-        };
-
-        // Create the iterator
-        Ok(InferIter::new(
-            self.device.clone(),
-            prompt_tokens,
-            pipeline,
-            logits_processor,
-            repeat_penalty,
-            repeat_last_n,
-            eos_token,
-        ))
-    }
-
-    pub(crate) fn instruct(
-        &self,
-        instruction: &TokenString,
-        stop_at: &[&str],
-    ) -> Result<TokenString> {
-        // Generate the seed from the last 4 tokens
-        let seed = instruction
-            .get(instruction.len().saturating_sub(4)..)
-            .unwrap()
-            .iter()
-            .fold(0u64, |acc, &token| acc.wrapping_add(token as u64));
-
-        // Perform the task
-        self.instruct_2(instruction, seed, self.max_tokens(), Some(0.5), stop_at)
-    }
-
-    /// Attempt to perform a given task
-    pub(crate) fn instruct_2(
-        &self,
-        instruction: &TokenString,
-        seed: u64,
-        max_tokens: usize,
-        temp: Option<f64>,
-        stop_at: &[&str],
-    ) -> Result<TokenString> {
-        // Create the prompt
-        let mut prompt = self.tokenize("### Instruction:\n");
-        prompt.push_many(instruction);
-        prompt.push_str("\n### Response:\n");
-
-        // Perform inference
-        let mut response = self.new_token_string();
-        for token in self.infer_iter(prompt, seed, temp, Some(0.9), 1.2, 64)?.take(max_tokens) {
-            response.push(token);
-            
-            // Detokenize the token and break if it matches any stop_at tokens
-            if !stop_at.is_empty() {
-                let token_str = self.detokenize(&[token]);
-                if stop_at.iter().any(|&stop| token_str.ends_with(stop)) {
-                    break;
-                }
-            }
-        }
-
-        // Return the response
-        Ok(response)
     }
 
     /// Attempt to get the token for a given string
@@ -195,49 +99,156 @@ impl Model {
         }
     }
 
-    /// Given a list of items and a context string, try to pick the most appropriate item
-    /// based on the context
-    pub(crate) fn pick_item(
+    /// Get an iterator that yields tokens generated by the model.
+    /// Returns an error if the prompt is empty.
+    pub fn infer_iter(
         &self,
-        context: &TokenString,
-        desired_traits: Option<&TokenString>,
+        prompt: impl IntoTokenString,
+        seed: u64,
+        temp: Option<f64>,
+        top_p: Option<f64>,
+        repeat_penalty: f32,
+        repeat_last_n: usize,
+    ) -> Result<InferIter> {
+        // Add the model seed to the seed provided
+        let seed = seed.wrapping_add(self.seed);
+
+        // Tokenize the prompt
+        let prompt = self.tokenize(prompt);
+
+        // Fail if the prompt is empty
+        if prompt.is_empty() {
+            anyhow::bail!("prompt was empty")
+        }
+
+        // Create pipeline
+        let pipeline = MixFormer::new(&self.config, self.vb.clone()).unwrap();
+
+        // Create logits processor
+        let logits_processor = LogitsProcessor::new(seed, temp, top_p);
+
+        // Get the end of text token
+        let eos_token = self.get_token("<|endoftext|>").unwrap();
+
+        // Create the iterator
+        Ok(InferIter::new(
+            self.device.clone(),
+            prompt,
+            pipeline,
+            logits_processor,
+            repeat_penalty,
+            repeat_last_n,
+            eos_token,
+        ))
+    }
+
+    /// Convenience function to create a prompt for instruct
+    fn create_instruct_prompt(
+        &self,
+        instruction: impl AsRef<str>,
+        extra_information: Option<&HashMap<&str, impl AsRef<str>>>,
+    ) -> TokenString {
+        // Start the prompt
+        let mut prompt = String::new();
+
+        // Add the extra information to the prompt
+        if let Some(extra_information) = extra_information {
+            // For each key-value pair, add it to the prompt
+            for (key, value) in extra_information {
+                // Skip the "Response" key
+                if *key == "Response" {
+                    continue;
+                }
+                prompt.push_str(&format!("### {}:\n{}\n", key, value.as_ref()));
+            }
+        }
+
+        // Add the instruction to the prompt
+        prompt.push_str(&format!("### Instruction:\n{}\n", instruction.as_ref()));
+
+        // Ask the model to generate the response
+        prompt.push_str("### Response:\n");
+
+        // If extra_information has a "Response" key, add it to the prompt
+        if let Some(response) = extra_information.and_then(|h| h.get("Response")) {
+            prompt.push_str(response.as_ref());
+        }
+
+        self.tokenize(prompt)
+    }
+
+    /// Instruct the model to generate a response based on the instruction.
+    /// Returns an iterator that can be used to get the tokens generated by the model.
+    pub fn instruct(
+        &self,
+        instruction: impl AsRef<str>,
+        extra_information: Option<&HashMap<&str, impl AsRef<str>>>,
+        seed: u64,
+        temp: Option<f64>,
+        top_p: Option<f64>,
+        repeat_penalty: f32,
+        repeat_last_n: usize,
+    ) -> InferIter {
+        // Create the prompt
+        let prompt = self.create_instruct_prompt(instruction, extra_information);
+
+        // Begin inference
+        self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n).unwrap()
+    }
+
+    /// Given a list of items and a context string, try to choose the most appropriate item
+    /// based on the context.
+    /// Returns the chosen item (lowercased and trimmed) if successful, otherwise None.
+    pub fn try_choose_item(
+        &self,
+        context: impl AsRef<str>,
+        desired_traits: impl AsRef<str>,
         items: impl IntoIterator<Item = impl AsRef<str>>,
         seed: u64,
-    ) -> Result<String> {
-        let items: Vec<String> = items.into_iter().map(|item| item.as_ref().trim().to_lowercase()).collect();
+        attempts: usize,
+    ) -> Option<String> {
+        let mut prompt_extra = HashMap::new();
 
-        // Start the prompt with the context
-        let mut prompt = self.tokenize("### Context:\n");
-        prompt.push_many(context);
+        // Make sure that seed + attempts doesn't overflow by subtracting u64::MAX / 2
+        let seed = if seed > u64::MAX - attempts as u64 {
+            seed - u64::MAX / 2
+        } else {
+            seed
+        };
 
-        // Add the items to the prompt, in brackets to help guide the model in the next step
-        prompt.push_str("\n### Items:\n");
-        for item in &items {
-            prompt.push_str(&format!("[{}]\n", item));
-        }
+        // Trim and lowercase all the items
+        let items: Vec<String> = items
+            .into_iter()
+            .map(|item| item.as_ref().trim().to_lowercase())
+            .collect();
 
-        // Add the desired trait to the prompt
-        if let Some(desired_traits) = desired_traits {
-            prompt.push_str("\n### Desired Traits:\n");
-            prompt.push_many(desired_traits);
-        }
+        // Format the items like so: "[item1], [item2], [item3]"
+        let items_string = format!("[{}]", items.join("]["));
+
+        // Add the context, items string and desired traits to the extra information
+        prompt_extra.insert("Context", context.as_ref());
+        prompt_extra.insert("Items", items_string.as_ref());
+        prompt_extra.insert("Desired Traits", desired_traits.as_ref());
+
+        // Start the response with a [ character
+        prompt_extra.insert("Response", "[");
         
-        // Ask the model to pick the most appropriate item
-        prompt.push_str("\n### Instruction:\nPick the most appropriate item from the list above.\n");
+        // Create the prompt
+        let prompt = self.create_instruct_prompt(
+            "Choose the most appropriate item for the context and desired traits.",
+            Some(&prompt_extra),
+        );
 
-        // Start the response with a bracket to guide the model
-        prompt.push_str("\n### Response:\n[");
-
-        // Keep trying until the model picks an item, incrementing the seed each time
-        // After the first iteration, temperature is set to 1.0 to encourage diversity
+        // Keep trying until the model chooses an item, incrementing the seed each time
+        // After each attempt, temperature is increased to encourage diversity
         let mut response = None;
         let mut temperature = 0.0;
-        for seed in seed.. {
+        for seed in seed..seed + attempts as u64 {
             // Clone the items
             let mut possible_items = items.clone();
             
             // Begin inference
-            let mut inference = self.infer_iter(prompt.clone(), seed, Some(temperature), None, 0.0, 0)?;
+            let mut inference = self.infer_iter(prompt.clone(), seed, Some(temperature), None, 1.0, 0).unwrap();
             
             // Infer while possible_items > 1
             let mut inferred = String::new();
@@ -264,14 +275,12 @@ impl Model {
                 break;
             }
 
-            // If the temperature is 0.0, set it to 0.5 and try again
-            if temperature == 0.0 {
-                temperature = 1.0;
-            }
+            // Raise the temperature and try again
+            temperature += 0.2;
         }
         
         // Return the response
-        response.ok_or_else(|| anyhow!("no response"))
+        response
     }
 }
 
@@ -288,7 +297,7 @@ pub struct InferIter {
 }
 
 impl InferIter {
-    pub fn new(
+    pub(crate) fn new(
         device: Device,
         tokens: TokenString,
         pipeline: MixFormer,
@@ -354,7 +363,7 @@ impl InferIter {
 
         // If the token is not the end of text token, add it to the tokens
         if next_token != self.eos_token {
-            self.tokens.push(next_token);
+            self.tokens.push_token(next_token);
         }
         // Otherwise, set reached_eos to true and return None
         else {
@@ -365,6 +374,16 @@ impl InferIter {
         // Return the next token
         Some(next_token)
     }
+
+    /// Run the iterator to completion and return the remaining tokens as a `TokenString`
+    pub fn collect(mut self) -> TokenString {
+        let mut response = self.tokens.model.new_token_string();
+        while let Some(token) = self.next_token() {
+            response.push_token(token);
+        }
+
+        response
+    }
 }
 
 impl Iterator for InferIter {
@@ -372,6 +391,18 @@ impl Iterator for InferIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_token()
+    }
+}
+
+impl Into<TokenString> for InferIter {
+    fn into(self) -> TokenString {
+        self.collect()
+    }
+}
+
+impl Into<String> for InferIter {
+    fn into(self) -> String {
+        self.collect().to_string()
     }
 }
 

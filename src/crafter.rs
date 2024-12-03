@@ -1,18 +1,19 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use itertools::Itertools;
 
-use crate::model::Model;
+use crate::model::{InferIter, Model};
 
 /// Use a Model to infer the results of crafting
 /// two or more items together.
 pub struct Crafter {
     model: Model,
+    temp: Option<f64>,
     examples: String,
 }
 
 impl Crafter {
-    pub fn new<'a>(model: Model, examples: impl IntoIterator<Item = &'a CrafterExample>) -> Self {
+    pub fn new<'a>(model: Model, temp: Option<f64>, examples: impl IntoIterator<Item = &'a CrafterExample>) -> Self {
         // Create a string with the examples separated by newlines
         let examples = examples
             .into_iter()
@@ -24,28 +25,22 @@ impl Crafter {
             })
             .join("\n");
 
-        Self { model, examples }
+        Self { model, temp, examples }
     }
 
-    pub fn craft(&self, items: impl IntoIterator<Item = impl Display>) -> String {
-        // Create the instruction token string
-        let instruction = self.model.tokenize(format!(
-            "{}\nWhat item do you get when you combine {}? Use only one or two words, keep it short but creative.",
-            self.examples,
-            items.into_iter().join(" and "),
-        ));
+    pub fn craft(&self, items: impl IntoIterator<Item = impl Display>, seed: u64) -> InferIter {
+        // Generate the instruction
+        let instruction = format!("Given the examples, what might you get by combining [{}]?", items.into_iter().join("] + ["));
 
-        // Create the seed
-        let seed = self.model.seed();
+        // Put examples in extra information
+        let mut extra = HashMap::new();
+        extra.insert("Examples", self.examples.as_ref());
+
+        // Start the response off with a [ character
+        extra.insert("Response", "[");
 
         // Infer the result
-        instruction
-            .instruct_2(seed, 64, Some(0.5), &[".", ".\""])
-            .to_string()
-            .trim_matches('"')
-            .trim_end_matches('.')
-            .trim_matches('"')
-            .to_string()
+        self.model.instruct(&instruction, Some(&extra), seed, self.temp, Some(0.9), 1.0, 0)
     }
 }
 
@@ -57,11 +52,11 @@ pub struct CrafterExample {
 impl CrafterExample {
     pub fn new(items: impl IntoIterator<Item = impl Display>, result: impl Display) -> Self {
         // Format the items as a string with a "+" separator
-        let items = items.into_iter().join(" and ");
+        let items = format!("[{}]", items.into_iter().join("] + ["));
 
         Self {
             items,
-            result: result.to_string(),
+            result: format!("[{}]", result),
         }
     }
 }
