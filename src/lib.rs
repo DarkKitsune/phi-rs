@@ -10,7 +10,7 @@ mod tests {
 
     #[test]
     fn crafting() {
-        const SEED: u64 = 6532;
+        const SEED: u64 = 122534;
 
         // Create the model
         let model = Model::new(SEED, true).unwrap();
@@ -32,12 +32,12 @@ mod tests {
         // Craft some items
         let result = crafter.craft(&["water", "cloud"], SEED);
         println!("water + cloud = {}", result);
-        let result = crafter.craft(&["evil", "good"], SEED);
-        println!("demons + good = {}", result);
         let result = crafter.craft(&["politics", "sword", "bomb"], SEED);
         println!("politics + sword + bomb = {}", result);
-        let result = crafter.craft(&["war", "a bottle of juice"], SEED);
-        println!("war + a bottle of juice = {}", result);
+        let result = crafter.craft(&["fire", "water"], SEED);
+        println!("fire + water = {}", result);
+        let result = crafter.craft(&["fire", "water", "earth"], SEED);
+        println!("fire + water + earth = {}", result);
     }
 
     #[test]
