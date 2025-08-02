@@ -60,7 +60,7 @@ mod tests {
 
         let item = model.try_choose_item(
             "You are a grade school teacher. There is a new student in your class. You want to make them feel welcome.",
-            "A gift for a child who likes to play outside.",
+            "Something tasty",
             ["snacks", "ball", "coloring book", "stuffed animal", "book"],
             SEED,
             ATTEMPTS

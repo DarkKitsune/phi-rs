@@ -146,7 +146,7 @@ impl Model {
     fn create_instruct_prompt(
         &self,
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<&str, impl AsRef<str>>>,
+        extra_information: Option<&HashMap<&str, &str>>,
     ) -> TokenString {
         // Start the prompt
         let mut prompt = String::new();
@@ -159,7 +159,7 @@ impl Model {
                 if *key == "Response" {
                     continue;
                 }
-                prompt.push_str(&format!("### {}:\n{}\n", key, value.as_ref()));
+                prompt.push_str(&format!("### {}:\n{}\n", key, value));
             }
         }
 
@@ -182,7 +182,7 @@ impl Model {
     pub fn instruct(
         &self,
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<&str, impl AsRef<str>>>,
+        extra_information: Option<&HashMap<&str, &str>>,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
