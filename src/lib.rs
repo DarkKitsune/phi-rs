@@ -68,4 +68,16 @@ mod tests {
         println!("Chose item: {:?}", item);
         
     }
+
+    #[test]
+    fn expand_detail() {
+        const SEED: u64 = 122534;
+
+        // Create the model
+        let model = Model::new(SEED, true).unwrap();
+
+        // Expand some details
+        let result = model.expand_detail("The quick brown fox jumps over the lazy dog.", SEED, 0.6);
+        println!("Expanded detail: {}", result);
+    }
 }

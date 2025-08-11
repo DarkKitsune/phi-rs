@@ -45,7 +45,8 @@ impl Crafter {
 
         // Gather the results until a ] is found
         self.model.instruct(&instruction, Some(&extra), seed, Some(self.temp.unwrap_or(0.0)), None, 1.0, 0)
-            .complete_until("]")
+            .complete_until(&["]"])
+            .0
     }
 }
 

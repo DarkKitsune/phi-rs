@@ -282,6 +282,17 @@ impl Model {
         // Return the response
         response
     }
+
+    /// Expand the given string with additional detail
+    /// The minimum and maximum lengths specify the range of lengths for the expanded text.
+    pub fn expand_detail(&self, string: impl Display, seed: u64, temp: f64) -> String {
+        // Create the instruction prompt
+        let instruction = format!("Please expand the following text with additional detail: {}", string);
+        // Instruct the model
+        self.instruct(instruction, None, seed, Some(temp), None, 1.0, 0)
+            .complete()
+            .to_string()
+    }
 }
 
 pub struct InferIter {
@@ -385,21 +396,23 @@ impl InferIter {
         response
     }
 
-    /// Run the iterator until completion or until `end_string` is generated
-    /// and return everything up to that point as a `String`
-    pub fn complete_until(mut self, end_string: impl AsRef<str>) -> String {
-        let end_string = end_string.as_ref();
+    /// Run the iterator until completion or until one of `end_sequences` is generated
+    /// and return everything up to that point as a `String`, as well as the end sequence that was reached
+    pub fn complete_until<'a>(mut self, end_sequences: &'a [&str]) -> (String, Option<&'a str>) {
         let mut response = String::new();
         while let Some(token) = self.next_token() {
             let token_str = self.tokens.model.detokenize(&[token]);
-            if token_str.contains(end_string) {
-                response.push_str(token_str.split(end_string).next().unwrap());
-                break;
+            for end_sequence in end_sequences {
+                if token_str.contains(end_sequence) {
+                    response.push_str(token_str.split(end_sequence).next().unwrap());
+                    self.reached_eos = true;
+                    return (response, Some(end_sequence));
+                }
             }
             response.push_str(&token_str);
         }
 
-        response
+        (response, None)
     }
 }
 
