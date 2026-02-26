@@ -385,9 +385,9 @@ impl Model {
         InferValue: TryInto<R>,
     {
         let kvp: Vec<_> = kvp.into_iter().collect();
-        for _ in 0..attempts {
+        for idx in 0..attempts {
             // Try to infer the value for the given key
-            if let Ok(value) = self.infer_key_value(kvp.clone(), key, seed, temp) {
+            if let Ok(value) = self.infer_key_value(kvp.clone(), key, seed.wrapping_add(idx as u64), temp) {
                 // Try to convert the inferred value to the desired type
                 // If the conversion was successful, return the converted value
                 let attempted_conversion = value.try_into();
