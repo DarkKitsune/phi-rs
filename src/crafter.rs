@@ -36,12 +36,12 @@ impl Crafter {
         let instruction = format!("What might you get by combining [{}]? Be creative and use the examples.", joined_items);
 
         // Put examples in extra information
-        let mut extra: HashMap<&str, &str> = HashMap::new();
-        extra.insert("Known Combinations", &self.examples);
+        let mut extra: HashMap<String, String> = HashMap::new();
+        extra.insert("Known Combinations".into(), self.examples.clone());
 
         // Start the response off to help the model
         let response_prefix = format!("If you combine [{}] you get: [", joined_items);
-        extra.insert("Response", &response_prefix);
+        extra.insert("Response".into(), response_prefix);
 
         // Gather the results until a ] is found
         self.model.instruct(&instruction, Some(&extra), seed, Some(self.temp.unwrap_or(0.0)), None, 1.0, 0)

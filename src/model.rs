@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use anyhow::{Error as E, Result};
@@ -146,7 +146,7 @@ impl Model {
     fn create_instruct_prompt(
         &self,
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<&str, &str>>,
+        extra_information: Option<&HashMap<String, String>>,
     ) -> TokenString {
         // Start the prompt
         let mut prompt = String::new();
@@ -182,7 +182,7 @@ impl Model {
     pub fn instruct(
         &self,
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<&str, &str>>,
+        extra_information: Option<&HashMap<String, String>>,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
@@ -201,8 +201,8 @@ impl Model {
     /// Returns the chosen item (lowercased and trimmed) if successful, otherwise None.
     pub fn try_choose_item(
         &self,
-        context: impl AsRef<str>,
-        desired_traits: impl AsRef<str>,
+        context: impl Display,
+        desired_traits: impl Display,
         items: impl IntoIterator<Item = impl AsRef<str>>,
         seed: u64,
         attempts: usize,
@@ -226,12 +226,12 @@ impl Model {
         let items_string = format!("[{}]", items.join("]["));
 
         // Add the context, items string and desired traits to the extra information
-        prompt_extra.insert("Context", context.as_ref());
-        prompt_extra.insert("Items", items_string.as_ref());
-        prompt_extra.insert("Desired Traits", desired_traits.as_ref());
+        prompt_extra.insert("Context".to_string(), context.to_string());
+        prompt_extra.insert("Items".to_string(), items_string);
+        prompt_extra.insert("Desired Traits".to_string(), desired_traits.to_string());
 
         // Start the response with a [ character
-        prompt_extra.insert("Response", "[");
+        prompt_extra.insert("Response".to_string(), "[".to_string());
         
         // Create the prompt
         let prompt = self.create_instruct_prompt(
@@ -288,10 +288,71 @@ impl Model {
     pub fn expand_detail(&self, string: impl Display, seed: u64, temp: f64) -> String {
         // Create the instruction prompt
         let instruction = format!("Please expand the following text with additional detail: {}", string);
+
         // Instruct the model
         self.instruct(instruction, None, seed, Some(temp), None, 1.0, 0)
             .complete()
             .to_string()
+    }
+
+    /// Infer a value for the given key if it were in in the given key-value pairs.
+    pub fn infer_key_value<'a, V, M>(&self, kvp: M, key: &str, seed: u64, temp: f64) -> Result<InferValue>
+    where
+        V: Into<InferValue> + Clone + 'a,
+        M: IntoIterator<Item = (&'a String, &'a V)>,
+    {
+        // Format the key-value pairs as a string to be used in the prompt.
+        // We make it resemble python dictionary syntax for the model's sake.
+        let hashmap_string = format!("{{\n{}\n}}", kvp.into_iter().map(|(k, v)| format!("'{}':{:?}", k, v.clone().into().to_string())).collect::<Vec<_>>().join(",\n"));
+
+        // Create the instruction prompt
+        let instruction = format!("Given the following dictionary, what should the value for key '{}' be?", key);
+
+        // We want to start the result with the key and ':' to encourage the model
+        let mut prompt_extra = HashMap::new();
+        prompt_extra.insert("Response".to_string(), format!("'{}':", key));
+
+        // Supply the dictionary as extra context to the model
+        prompt_extra.insert("Dictionary".to_string(), hashmap_string);
+
+        // Instruct the model and get the result
+        let result = self.instruct(instruction, Some(&prompt_extra), seed, Some(temp), None, 1.0, 0)
+            .complete_until(&["\n", ",", "}"])
+            .0
+            .to_string()
+            .trim()
+            .to_string();
+        
+        // If the result is empty, return an error
+        if result.is_empty() {
+            println!("A");
+            return Err(anyhow::anyhow!("Model inferred empty value for key \"{}\"", key));
+        }
+
+        InferValue::from_str(&result)
+    }
+
+    /// Infer a value for the given key if it were in in the given key-value pairs.
+    /// Attempts a given number of times, with a failure being if the value fails to parse
+    pub fn try_infer_key_value<'a, V, M, R>(&self, kvp: M, key: &str, seed: u64, temp: f64, attempts: usize) -> Result<R>
+    where
+        V: Into<InferValue> + Clone + 'a,
+        M: IntoIterator<Item = (&'a String, &'a V)> + Clone,
+        InferValue: TryInto<R>
+    {
+        let kvp: Vec<_> = kvp.into_iter().collect();
+        for _ in 0..attempts {
+            // Try to infer the value for the given key
+            if let Ok(value) = self.infer_key_value(kvp.clone(), key, seed, temp) {
+                // Try to convert the inferred value to the desired type
+                // If the conversion was successful, return the converted value
+                let attempted_conversion = value.try_into();
+                if let Ok(converted) = attempted_conversion {
+                    return Ok(converted);
+                }
+            }
+        }
+        Err(anyhow::anyhow!("Failed to infer value for key \"{}\" after {} attempts", key, attempts))
     }
 }
 
@@ -436,6 +497,7 @@ impl Into<String> for InferIter {
     }
 }
 
+#[derive(Clone)]
 pub enum InferValue {
     String(String),
     Float(f64),
@@ -443,6 +505,7 @@ pub enum InferValue {
 }
 
 impl InferValue {
+    /// Convert the `InferValue` to a simple `String`
     pub fn to_string(&self) -> String {
         match self {
             Self::String(s) => s.clone(),
@@ -451,6 +514,7 @@ impl InferValue {
         }
     }
 
+    /// Parse a `&str` to an `InferValue`
     pub fn from_str(s: &str) -> Result<Self> {
         if let Ok(f) = s.parse::<f64>() {
             Ok(Self::Float(f))
@@ -458,6 +522,16 @@ impl InferValue {
             Ok(Self::Int(i))
         } else {
             Ok(Self::String(s.to_string().trim_matches('"').to_string()))
+        }
+    }
+
+    /// Write a debug representation of the `InferValue`.
+    /// This is the same as the value would appear in code.
+    pub fn write_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String(s) => write!(f, "\"{}\"", s),
+            Self::Float(fl) => write!(f, "{}", fl),
+            Self::Int(i) => write!(f, "{}", i),
         }
     }
 }
@@ -473,6 +547,12 @@ impl FromStr for InferValue {
 impl Display for InferValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_string())
+    }
+}
+
+impl Debug for InferValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.write_debug(f)
     }
 }
 
@@ -518,6 +598,18 @@ impl From<u32> for InferValue {
     }
 }
 
+impl From<i16> for InferValue {
+    fn from(i: i16) -> Self {
+        Self::Int(i as i64)
+    }
+}
+
+impl From<u16> for InferValue {
+    fn from(i: u16) -> Self {
+        Self::Int(i as i64)
+    }
+}
+
 impl From<i8> for InferValue {
     fn from(i: i8) -> Self {
         Self::Int(i as i64)
@@ -542,17 +634,178 @@ impl From<isize> for InferValue {
     }
 }
 
-impl<T: Into<InferValue>> From<&T> for InferValue {
-    fn from(t: &T) -> Self {
-        t.into()
+impl<T: Into<InferValue> + Clone> From<&T> for InferValue {
+    fn from(value: &T) -> Self {
+        value.clone().into()
+    }
+}
+
+impl Into<String> for InferValue {
+    fn into(self) -> String {
+        match self {
+            InferValue::String(s) => {
+                // Remove surrounding quotes (both ' and ")
+                s.trim_matches(|c| c == '"' || c == '\'').to_string()
+            },
+            InferValue::Float(f) => f.to_string(),
+            InferValue::Int(i) => i.to_string(),
+        }
+    }
+}
+
+impl TryInto<f64> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<f64, Self::Error> {
+        match self {
+            InferValue::Float(f) => Ok(f),
+            InferValue::Int(i) => Ok(i as f64),
+            InferValue::String(s) => s.parse::<f64>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<i64> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i64, Self::Error> {
+        match self {
+            InferValue::Int(i) => Ok(i),
+            InferValue::Float(f) => Ok(f as i64),
+            InferValue::String(s) => s.parse::<i64>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<u64> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u64, Self::Error> {
+        match self {
+            InferValue::Int(i) => Ok(i as u64),
+            InferValue::Float(f) => Ok(f as u64),
+            InferValue::String(s) => s.parse::<u64>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<f32> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<f32, Self::Error> {
+        match self {
+            InferValue::Float(f) => Ok(f as f32),
+            InferValue::Int(i) => Ok(i as f32),
+            InferValue::String(s) => s.parse::<f32>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<i32> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i32, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to i32")),
+            InferValue::Float(f) => Ok(f as i32),
+            InferValue::String(s) => s.parse::<i32>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<u32> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u32, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to u32")),
+            InferValue::Float(f) => Ok(f as u32),
+            InferValue::String(s) => s.parse::<u32>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<i16> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i16, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to i16")),
+            InferValue::Float(f) => Ok(f as i16),
+            InferValue::String(s) => s.parse::<i16>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<u16> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u16, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to u16")),
+            InferValue::Float(f) => Ok(f as u16),
+            InferValue::String(s) => s.parse::<u16>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<i8> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i8, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to i8")),
+            InferValue::Float(f) => Ok(f as i8),
+            InferValue::String(s) => s.parse::<i8>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<u8> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<u8, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to u8")),
+            InferValue::Float(f) => Ok(f as u8),
+            InferValue::String(s) => s.parse::<u8>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<isize> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<isize, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to isize")),
+            InferValue::Float(f) => Ok(f as isize),
+            InferValue::String(s) => s.parse::<isize>().map_err(|e| anyhow::anyhow!(e)),
+        }
+    }
+}
+
+impl TryInto<usize> for InferValue {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<usize, Self::Error> {
+        match self {
+            InferValue::Int(i) => i.try_into().map_err(|_| anyhow::anyhow!("Failed to convert i64 to usize")),
+            InferValue::Float(f) => Ok(f as usize),
+            InferValue::String(s) => s.parse::<usize>().map_err(|e| anyhow::anyhow!(e)),
+        }
     }
 }
 
 #[macro_export]
 macro_rules! inference_key_value_pairs {
-    [$($key:expr => $value:expr,)*$(,)?] => {
-        vec![$(
-            ($key, $crate::model::InferValue::from($value)),
-        )*]
+    [$($key:expr => $value:expr),*$(,)?] => {
+        {
+            let mut map: std::collections::HashMap<String, $crate::model::InferValue> = HashMap::new();
+            $(
+                map.insert($key.to_string(), $crate::model::InferValue::from($value));
+            )*
+            map
+        }
     };
 }
