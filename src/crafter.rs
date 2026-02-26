@@ -13,19 +13,22 @@ pub struct Crafter {
 }
 
 impl Crafter {
-    pub fn new<'a>(model: Model, temp: Option<f64>, examples: impl IntoIterator<Item = &'a CrafterExample>) -> Self {
+    pub fn new<'a>(
+        model: Model,
+        temp: Option<f64>,
+        examples: impl IntoIterator<Item = &'a CrafterExample>,
+    ) -> Self {
         // Create a string with the examples separated by newlines
         let examples = examples
             .into_iter()
-            .map(|example| {
-                format!(
-                    "Combining {} results in {}",
-                    example.items, example.result
-                )
-            })
+            .map(|example| format!("Combining {} results in {}", example.items, example.result))
             .join("\n");
 
-        Self { model, temp, examples }
+        Self {
+            model,
+            temp,
+            examples,
+        }
     }
 
     pub fn craft(&self, items: impl IntoIterator<Item = impl Display>, seed: u64) -> String {
@@ -33,7 +36,10 @@ impl Crafter {
         let joined_items = items.into_iter().join("] + [");
 
         // Generate the instruction
-        let instruction = format!("What might you get by combining [{}]? Be creative and use the examples.", joined_items);
+        let instruction = format!(
+            "What might you get by combining [{}]? Be creative and use the examples.",
+            joined_items
+        );
 
         // Put examples in extra information
         let mut extra: HashMap<String, String> = HashMap::new();
@@ -44,7 +50,16 @@ impl Crafter {
         extra.insert("Response".into(), response_prefix);
 
         // Gather the results until a ] is found
-        self.model.instruct(&instruction, Some(&extra), seed, Some(self.temp.unwrap_or(0.0)), None, 1.0, 0)
+        self.model
+            .instruct(
+                &instruction,
+                Some(&extra),
+                seed,
+                Some(self.temp.unwrap_or(0.0)),
+                None,
+                1.0,
+                0,
+            )
             .complete_until(&["]"])
             .0
     }

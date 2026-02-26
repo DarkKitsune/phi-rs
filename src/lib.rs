@@ -56,7 +56,7 @@ mod tests {
             "The item should be a weapon capable of defeating a dragon.",
             ["horse", "sword", "potion", "compass"],
             SEED,
-            ATTEMPTS
+            ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
 
@@ -68,7 +68,6 @@ mod tests {
             ATTEMPTS
         );
         println!("Chose item: {:?}", item);
-        
     }
 
     #[test]
@@ -93,19 +92,29 @@ mod tests {
 
         // Extra data to pass to the model
         let mut extra = HashMap::new();
-        extra.insert("Integers".to_string(), INTEGERS.into_iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "));
+        extra.insert(
+            "Integers".to_string(),
+            INTEGERS
+                .into_iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
         extra.insert("Response".to_string(), "[".to_string()); // Start the response with a [ character
 
         // Get the sorted integers from the model
-        let response = model.instruct(
-            "Sort the integers in ascending order.",
-            Some(&extra),
-            SEED,
-            Some(0.0),
-            None,
-            1.0,
-            0,
-        ).complete_until(&["]"]).0;
+        let response = model
+            .instruct(
+                "Sort the integers in ascending order.",
+                Some(&extra),
+                SEED,
+                Some(0.0),
+                None,
+                1.0,
+                0,
+            )
+            .complete_until(&["]"])
+            .0;
 
         println!("Sorted integers: [{}]", response);
     }
@@ -126,17 +135,23 @@ mod tests {
         };
 
         // Generate the person's name, print it, and add it to the map
-        let name: String = model.try_infer_key_value(&map, "name", SEED, TEMP, 7).unwrap();
+        let name: String = model
+            .try_infer_key_value(&map, "name", SEED, TEMP, 7)
+            .unwrap();
         println!("Name: {}", name);
         map.insert("name".to_string(), name.into());
 
         // Generate the person's weapon, print it, and add it to the map
-        let weapon: String = model.try_infer_key_value(&map, "weapon", SEED, TEMP, 7).unwrap();
+        let weapon: String = model
+            .try_infer_key_value(&map, "weapon", SEED, TEMP, 7)
+            .unwrap();
         println!("Weapon: {}", weapon);
         map.insert("weapon".to_string(), weapon.into());
 
         // Generate the person's armor, print it, and add it to the map
-        let armor: String = model.try_infer_key_value(&map, "armor", SEED, TEMP, 7).unwrap();
+        let armor: String = model
+            .try_infer_key_value(&map, "armor", SEED, TEMP, 7)
+            .unwrap();
         println!("Armor: {}", armor);
         map.insert("armor".to_string(), armor.into());
 

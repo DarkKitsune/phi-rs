@@ -17,7 +17,8 @@ impl TokenString {
 
     /// Push any type that can be converted into a token string
     pub fn push(&mut self, other: impl IntoTokenString) {
-        self.tokens.extend(other.into_token_string(&self.model).tokens);
+        self.tokens
+            .extend(other.into_token_string(&self.model).tokens);
     }
 
     /// Push a single token
@@ -124,7 +125,6 @@ impl AsMut<[u32]> for TokenString {
         &mut self.tokens
     }
 }
-
 
 /// A trait for types that can be converted into a `TokenString`
 pub trait IntoTokenString {
