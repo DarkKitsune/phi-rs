@@ -1,4 +1,5 @@
 pub mod crafter;
+pub mod chat;
 pub mod model;
 pub mod token_string;
 
@@ -6,16 +7,17 @@ pub mod token_string;
 mod tests {
     use std::collections::HashMap;
 
+    use crate::model::{Model, ModelType};
+
     use super::*;
     use crafter::{Crafter, CrafterExample};
-    use model::Model;
 
     #[test]
     fn crafting() {
         const SEED: u64 = 122534;
 
         // Create the model
-        let model = Model::new(SEED, true).unwrap();
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Create a crafter
         let crafter = Crafter::new(
@@ -48,7 +50,7 @@ mod tests {
         const ATTEMPTS: usize = 5;
 
         // Create the model
-        let model = Model::new(SEED, true).unwrap();
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Present choices to the model
         let item = model.try_choose_item(
@@ -71,24 +73,12 @@ mod tests {
     }
 
     #[test]
-    fn expand_detail() {
-        const SEED: u64 = 122534;
-
-        // Create the model
-        let model = Model::new(SEED, true).unwrap();
-
-        // Expand some details
-        let result = model.expand_detail("The quick brown fox jumps over the lazy dog.", SEED, 0.6);
-        println!("Expanded detail: {}", result);
-    }
-
-    #[test]
     fn sort_integers() {
         const INTEGERS: [i32; 6] = [34, 7, 23, 32, 5, 62];
         const SEED: u64 = 987654;
 
         // Create the model
-        let model = Model::new(SEED, true).unwrap();
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Extra data to pass to the model
         let mut extra = HashMap::new();
@@ -113,10 +103,34 @@ mod tests {
                 1.0,
                 0,
             )
-            .complete_until(&["]"])
+            .complete(&["]"])
             .0;
 
         println!("Sorted integers: [{}]", response);
+    }
+
+    #[test]
+    fn expand_sentence() {
+        const SEED: u64 = 123456;
+        const TEMP: f64 = 0.5;
+
+        // Create the model
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+
+        // Expand a sentence
+        let sentence = "The quick brown fox jumps over the lazy dog.";
+        let expanded = model.instruct(
+            format!("Expand the following sentence: {}", sentence),
+            None,
+            SEED,
+            Some(TEMP),
+            None,
+            1.0,
+            0,
+        )
+        .complete(&[]).0;
+
+        println!("Expanded sentence: {}", expanded);
     }
 
     #[test]
@@ -125,7 +139,7 @@ mod tests {
         const TEMP: f64 = 0.5;
 
         // Create the model
-        let model = Model::new(SEED, true).unwrap();
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Create a map representing a person
         let mut map = inference_key_value_pairs! {
@@ -134,26 +148,35 @@ mod tests {
             "hometown" => "Millwood",
         };
 
-        // Generate the person's name, print it, and add it to the map
+        // Generate the person's name, and add it to the map
         let name: String = model
             .try_infer_key_value(&map, "name", SEED, TEMP, 7)
             .unwrap();
-        println!("Name: {}", name);
         map.insert("name".to_string(), name.into());
 
-        // Generate the person's weapon, print it, and add it to the map
+        // Generate the person's weapon, and add it to the map
         let weapon: String = model
             .try_infer_key_value(&map, "weapon", SEED, TEMP, 7)
             .unwrap();
-        println!("Weapon: {}", weapon);
         map.insert("weapon".to_string(), weapon.into());
 
-        // Generate the person's armor, print it, and add it to the map
+        // Generate the person's armor, and add it to the map
         let armor: String = model
             .try_infer_key_value(&map, "armor", SEED, TEMP, 7)
             .unwrap();
-        println!("Armor: {}", armor);
         map.insert("armor".to_string(), armor.into());
+
+        // Generate the person's weapon damage, and add it to the map
+        let weapon_damage: usize = model
+            .try_infer_key_value(&map, "weapon_damage", SEED, TEMP, 7)
+            .unwrap();
+        map.insert("weapon_damage".to_string(), weapon_damage.into());
+
+        // Generate the person's health, and add it to the map
+        let health: usize = model
+            .try_infer_key_value(&map, "health", SEED, TEMP, 7)
+            .unwrap();
+        map.insert("health".to_string(), health.into());
 
         // Print the final map
         println!("Final map: {:#?}", map);

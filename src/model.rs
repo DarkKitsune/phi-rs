@@ -4,7 +4,8 @@ use std::str::FromStr;
 
 use anyhow::{Error as E, Result};
 
-use candle_transformers::models::mixformer::{Config, MixFormerSequentialForCausalLM as MixFormer};
+//use candle_transformers::models::mixformer::{Config, MixFormerSequentialForCausalLM as MixFormer};
+use candle_transformers::models::phi::{Config as PhiConfig, Model as Phi};
 
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -12,33 +13,38 @@ use candle_transformers::generation::LogitsProcessor;
 use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
+use crate::chat::{Chat, ChatRole};
 use crate::token_string::{IntoTokenString, TokenString};
 
 pub const MAX_TOKENS: usize = 2048;
 
 #[derive(Clone)]
 pub struct Model {
-    config: Config,
+    model_type: ModelType,
+    config: PhiConfig,
     vb: VarBuilder<'static>,
     tokenizer: Tokenizer,
+    vocab_size: usize,
     device: Device,
     seed: u64,
 }
 
 impl Model {
-    pub fn new(seed: u64, use_cuda: bool) -> Result<Self> {
+    pub fn new(model_type: ModelType, seed: u64, use_cuda: bool) -> Result<Self> {
         let device = if use_cuda && candle_core::utils::cuda_is_available() {
             Device::new_cuda(0).unwrap()
         } else {
             Device::Cpu
         };
         let api = Api::new()?;
-        let repo = api.model("lmz/candle-quantized-phi".to_string());
-        let tokenizer_filename = repo.get("tokenizer-puffin-phi-v2.json")?;
-        let model_filename = repo.get("model-phi-hermes-1_3B.safetensors")?;
+        let repo = api.model(model_type.repo_name().to_string());
+        let tokenizer_filename = repo.get(model_type.tokenizer_json_name())?;
+        let model_filename = repo.get(model_type.model_name())?;
 
         // Create model config
-        let config = Config::phi_hermes_1_3b();
+        let config_filename = repo.get("config.json")?;
+        let config = std::fs::read_to_string(config_filename)?;
+        let config = serde_json::from_str(&config)?;
 
         // Create VarBuilder
         let vb =
@@ -46,12 +52,15 @@ impl Model {
 
         // Create tokenizer
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
+        let vocab_size = tokenizer.get_vocab_size(false);
 
         Ok(Self {
+            model_type,
             config,
             vb,
             tokenizer,
             device: device.clone(),
+            vocab_size,
             seed,
         })
     }
@@ -126,7 +135,7 @@ impl Model {
         }
 
         // Create pipeline
-        let pipeline = MixFormer::new(&self.config, self.vb.clone()).unwrap();
+        let pipeline = Phi::new(&self.config, self.vb.clone()).unwrap();
 
         // Create logits processor
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
@@ -138,47 +147,13 @@ impl Model {
         Ok(InferIter::new(
             self.device.clone(),
             prompt,
+            self.vocab_size,
             pipeline,
             logits_processor,
             repeat_penalty,
             repeat_last_n,
             eos_token,
         ))
-    }
-
-    /// Convenience function to create a prompt for instruct
-    fn create_instruct_prompt(
-        &self,
-        instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<String, String>>,
-    ) -> TokenString {
-        // Start the prompt
-        let mut prompt = String::new();
-
-        // Add the extra information to the prompt
-        if let Some(extra_information) = extra_information {
-            // For each key-value pair, add it to the prompt
-            for (key, value) in extra_information {
-                // Skip the "Response" key
-                if *key == "Response" {
-                    continue;
-                }
-                prompt.push_str(&format!("### {}:\n{}\n", key, value));
-            }
-        }
-
-        // Add the instruction to the prompt
-        prompt.push_str(&format!("### Instruction:\n{}\n", instruction.as_ref()));
-
-        // Ask the model to generate the response
-        prompt.push_str("### Response:\n");
-
-        // If extra_information has a "Response" key, add it to the prompt
-        if let Some(response) = extra_information.and_then(|h| h.get("Response")) {
-            prompt.push_str(response.as_ref());
-        }
-
-        self.tokenize(prompt)
     }
 
     /// Instruct the model to generate a response based on the instruction.
@@ -194,7 +169,7 @@ impl Model {
         repeat_last_n: usize,
     ) -> InferIter {
         // Create the prompt
-        let prompt = self.create_instruct_prompt(instruction, extra_information);
+        let prompt = self.model_type.create_instruct_prompt(instruction, extra_information);
 
         // Begin inference
         self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
@@ -239,7 +214,7 @@ impl Model {
         prompt_extra.insert("Response".to_string(), "[".to_string());
 
         // Create the prompt
-        let prompt = self.create_instruct_prompt(
+        let prompt = self.model_type.create_instruct_prompt(
             "Choose the most appropriate item for the context and desired traits.",
             Some(&prompt_extra),
         );
@@ -290,21 +265,6 @@ impl Model {
         response
     }
 
-    /// Expand the given string with additional detail
-    /// The minimum and maximum lengths specify the range of lengths for the expanded text.
-    pub fn expand_detail(&self, string: impl Display, seed: u64, temp: f64) -> String {
-        // Create the instruction prompt
-        let instruction = format!(
-            "Please expand the following text with additional detail: {}",
-            string
-        );
-
-        // Instruct the model
-        self.instruct(instruction, None, seed, Some(temp), None, 1.0, 0)
-            .complete()
-            .to_string()
-    }
-
     /// Infer a value for the given key if it were in in the given key-value pairs.
     pub fn infer_key_value<'a, V, M>(
         &self,
@@ -351,15 +311,13 @@ impl Model {
                 1.0,
                 0,
             )
-            .complete_until(&["\n", ",", "}"])
+            .complete(&["\n", ",", "}"])
             .0
-            .to_string()
             .trim()
             .to_string();
 
         // If the result is empty, return an error
         if result.is_empty() {
-            println!("A");
             return Err(anyhow::anyhow!(
                 "Model inferred empty value for key \"{}\"",
                 key
@@ -404,11 +362,170 @@ impl Model {
     }
 }
 
+/// Represents the type of Phi model to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModelType {
+    // PhiHermes,
+    Phi15Instruct,
+}
+
+impl ModelType {
+    pub fn repo_name(&self) -> &'static str {
+        match self {
+            // ModelType::PhiHermes => "lmz/candle-quantized-phi",
+            ModelType::Phi15Instruct => "rasyosef/Phi-1_5-Instruct-v0.1",
+        }
+    }
+
+    pub fn tokenizer_json_name(&self) -> &'static str {
+        match self {
+            // ModelType::PhiHermes => "tokenizer-puffin-phi-v2.json",
+            ModelType::Phi15Instruct => "tokenizer.json",
+        }
+    }
+
+    pub fn model_name(&self) -> &'static str {
+        match self {
+            // ModelType::PhiHermes => "model-phi-hermes-1_3B.safetensors",
+            ModelType::Phi15Instruct => "model.safetensors",
+        }
+    }
+
+    /// Creates an instruction prompt meant for this type of Phi model.
+    pub fn create_instruct_prompt(
+        &self,
+        instruction: impl AsRef<str>,
+        extra_information: Option<&HashMap<String, String>>,
+    ) -> String {
+        match self {
+            // ModelType::PhiHermes => Self::create_phi_hermes_instruct_prompt(instruction, extra_information),
+            ModelType::Phi15Instruct => Self::create_phi15_instruct_instruct_prompt(instruction, extra_information),
+        }
+    }
+
+    fn create_phi_hermes_instruct_prompt(
+        instruction: impl AsRef<str>,
+        extra_information: Option<&HashMap<String, String>>,
+    ) -> String {
+        let mut prompt = String::new();
+
+        // Add the extra information to the prompt
+        if let Some(extra_information) = extra_information {
+            // For each key-value pair, add it to the prompt
+            for (key, value) in extra_information {
+                // Skip the "Response" key
+                if *key == "Response" {
+                    continue;
+                }
+                prompt.push_str(&format!("### {}:\n{}\n", key, value));
+            }
+        }
+
+        // Add the instruction to the prompt
+        prompt.push_str(&format!("### Instruction:\n{}\n", instruction.as_ref()));
+
+        // Ask the model to generate the response
+        prompt.push_str("### Response:\n");
+
+        // If extra_information has a "Response" key, add it to the prompt
+        if let Some(response) = extra_information.and_then(|h| h.get("Response")) {
+            prompt.push_str(response.as_ref());
+        }
+
+        prompt
+    }
+
+    fn create_phi15_instruct_instruct_prompt(
+        instruction: impl AsRef<str>,
+        extra_information: Option<&HashMap<String, String>>,
+    ) -> String {
+        let mut prompt = String::new();
+
+        // Start the system section
+        prompt.push_str("<|im_start|>system\n");
+
+        // Get the role from extra_information if it exists
+        // Otherwise default to a default role
+        let role = extra_information
+            .and_then(|h| h.get("Role"))
+            .map(|s| s.as_ref())
+            .unwrap_or("You are a helpful assistant.");
+
+        // Push the role to the system section
+        prompt.push_str(&format!("{}\n", role));
+        
+        // Push other extra information to the system section
+        // Skip the "Role" and "Response" keys
+        if let Some(extra_information) = extra_information && !extra_information.is_empty() {
+            // First start with "What you know:" in case that helps the model
+            prompt.push_str("What you know:\n");
+
+            // Add the other extra information to the system section
+            for (key, value) in extra_information {
+                if key != "Role" && key != "Response" {
+                    prompt.push_str(&format!("{}: {}\n", key, value));
+                }
+            }
+        }
+
+        // End the system section and start the user section
+        prompt.push_str("<|im_end|>\n<|im_start|>user\n");
+
+        // Push the instruction as the user section
+        prompt.push_str(&format!("{}\n", instruction.as_ref()));
+
+        // End the user section and start the assistant section (response)
+        prompt.push_str("<|im_end|>\n<|im_start|>assistant\n");
+
+        // Start the response with the value of extra_information["Response"] if it exists
+        if let Some(response) = extra_information.and_then(|h| h.get("Response")) {
+            prompt.push_str(response.as_ref());
+        }
+
+        prompt
+    }
+    
+    /// Creates a chat prompt meant for this type of Phi model.
+    pub fn create_chat_prompt(&self, chat: &Chat, system_prompt: Option<&str>) -> String {
+        match self {
+            // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat, system_prompt),
+            ModelType::Phi15Instruct => Self::create_phi15_instruct_chat_prompt(chat, system_prompt),
+        }
+    }
+    
+    fn create_phi15_instruct_chat_prompt(chat: &Chat, system_prompt: Option<&str>) -> String {
+        let mut prompt = String::new();
+
+        // Add the system prompt to the system section if it is provided
+        if let Some(system_prompt) = system_prompt {
+            prompt.push_str(&format!("<|im_start|>system\n{}\n<|im_end|>\n", system_prompt));
+        }
+
+        // Add each message in the chat to the prompt as a new section
+        for message in chat {
+            match message.sender() {
+                ChatRole::User => {
+                    prompt.push_str(&format!("<|im_start|>user\n{}\n<|im_end|>\n", message.content()));
+                }
+                ChatRole::Model => {
+                    prompt.push_str(&format!("<|im_start|>assistant\n{}\n<|im_end|>\n", message.content()));
+                }
+            }
+        }
+
+        // Start the final assistant section (response)
+        prompt.push_str("<|im_start|>assistant\n");
+
+        prompt
+    }
+}
+
 pub struct InferIter {
     device: Device,
     tokens: TokenString,
+    vocab_size: usize,
     step: usize,
-    pipeline: MixFormer,
+    pipeline: Phi,
     logits_processor: LogitsProcessor,
     repeat_penalty: f32,
     repeat_last_n: usize,
@@ -420,7 +537,8 @@ impl InferIter {
     pub(crate) fn new(
         device: Device,
         tokens: TokenString,
-        pipeline: MixFormer,
+        vocab_size: usize,
+        pipeline: Phi,
         logits_processor: LogitsProcessor,
         repeat_penalty: f32,
         repeat_last_n: usize,
@@ -429,6 +547,7 @@ impl InferIter {
         Self {
             device,
             tokens,
+            vocab_size,
             step: 0,
             pipeline,
             logits_processor,
@@ -500,53 +619,33 @@ impl InferIter {
         Some(next_token)
     }
 
-    /// Run the iterator until completion and return the remaining tokens as a `TokenString`
-    pub fn complete(mut self) -> TokenString {
-        let mut response = self.tokens.model.new_token_string();
-        while let Some(token) = self.next_token() {
-            response.push_token(token);
-        }
-
-        response
-    }
-
     /// Run the iterator until completion or until one of `end_sequences` is generated
     /// and return everything up to that point as a `String`, as well as the end sequence that was reached
-    pub fn complete_until<'a>(mut self, end_sequences: &'a [&str]) -> (String, Option<&'a str>) {
+    pub fn complete<'a>(mut self, end_sequences: &'a [&str]) -> (String, Option<&'a str>) {
         let mut response = String::new();
-        while let Some(token) = self.next_token() {
+        while let Some(token) = self.next_token() && token < self.vocab_size as u32 - 1 {
             let token_str = self.tokens.model.detokenize(&[token]);
+            // Exit early if token_str formed any stop sequence, cutting off the response at that point
             for end_sequence in end_sequences {
-                if token_str.contains(end_sequence) {
-                    response.push_str(token_str.split(end_sequence).next().unwrap());
+                if let Some(pos) = token_str.find(end_sequence) {
+                    response.push_str(&token_str[..pos]);
                     self.reached_eos = true;
                     return (response, Some(end_sequence));
                 }
             }
+            
             response.push_str(&token_str);
         }
+
+        self.reached_eos = true;
 
         (response, None)
     }
 }
 
-impl Iterator for InferIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next_token()
-    }
-}
-
-impl Into<TokenString> for InferIter {
-    fn into(self) -> TokenString {
-        self.complete()
-    }
-}
-
 impl Into<String> for InferIter {
     fn into(self) -> String {
-        self.complete().to_string()
+        self.complete(&[]).0
     }
 }
 

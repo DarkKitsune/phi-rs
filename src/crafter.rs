@@ -60,7 +60,7 @@ impl Crafter {
                 1.0,
                 0,
             )
-            .complete_until(&["]"])
+            .complete(&["]"])
             .0
     }
 }
