@@ -161,7 +161,7 @@ impl Model {
     pub fn instruct(
         &self,
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<String, String>>,
+        extra_data: Option<&HashMap<String, InferValue>>,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
@@ -169,7 +169,7 @@ impl Model {
         repeat_last_n: usize,
     ) -> InferIter {
         // Create the prompt
-        let prompt = self.model_type.create_instruct_prompt(instruction, extra_information);
+        let prompt = self.model_type.create_instruct_prompt(instruction, extra_data);
 
         // Begin inference
         self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
@@ -205,13 +205,13 @@ impl Model {
         // Format the items like so: "[item1], [item2], [item3]"
         let items_string = format!("[{}]", items.join("]["));
 
-        // Add the context, items string and desired traits to the extra information
-        prompt_extra.insert("Context".to_string(), context.to_string());
-        prompt_extra.insert("Items".to_string(), items_string);
-        prompt_extra.insert("Desired Traits".to_string(), desired_traits.to_string());
+        // Add the context, items string and desired traits to the extra data
+        prompt_extra.insert("Context".to_string(), context.to_string().into());
+        prompt_extra.insert("Items".to_string(), items_string.into());
+        prompt_extra.insert("Desired Traits".to_string(), desired_traits.to_string().into());
 
         // Start the response with a [ character
-        prompt_extra.insert("Response".to_string(), "[".to_string());
+        prompt_extra.insert("Response".to_string(), "[".to_string().into());
 
         // Create the prompt
         let prompt = self.model_type.create_instruct_prompt(
@@ -294,11 +294,11 @@ impl Model {
         );
 
         // We want to start the result with the key and ':' to encourage the model
-        let mut prompt_extra = HashMap::new();
-        prompt_extra.insert("Response".to_string(), format!("'{}':", key));
+        let mut prompt_extra: HashMap<String, InferValue> = HashMap::new();
+        prompt_extra.insert("Response".to_string(), format!("'{}':", key).into());
 
         // Supply the dictionary as extra context to the model
-        prompt_extra.insert("Dictionary".to_string(), hashmap_string);
+        prompt_extra.insert("Dictionary".to_string(), hashmap_string.into());
 
         // Instruct the model and get the result
         let result = self
@@ -395,24 +395,25 @@ impl ModelType {
     pub fn create_instruct_prompt(
         &self,
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<String, String>>,
+        extra_data: Option<&HashMap<String, InferValue>>,
     ) -> String {
         match self {
-            // ModelType::PhiHermes => Self::create_phi_hermes_instruct_prompt(instruction, extra_information),
-            ModelType::Phi15Instruct => Self::create_phi15_instruct_instruct_prompt(instruction, extra_information),
+            // ModelType::PhiHermes => Self::create_phi_hermes_instruct_prompt(instruction, extra_data),
+            ModelType::Phi15Instruct => Self::create_phi15_instruct_instruct_prompt(instruction, extra_data),
         }
     }
 
+    /*
     fn create_phi_hermes_instruct_prompt(
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<String, String>>,
+        extra_data: Option<&HashMap<String, InferValue>>,
     ) -> String {
         let mut prompt = String::new();
 
-        // Add the extra information to the prompt
-        if let Some(extra_information) = extra_information {
+        // Add the extra data to the prompt
+        if let Some(extra_data) = extra_data {
             // For each key-value pair, add it to the prompt
-            for (key, value) in extra_information {
+            for (key, value) in extra_data {
                 // Skip the "Response" key
                 if *key == "Response" {
                     continue;
@@ -427,41 +428,42 @@ impl ModelType {
         // Ask the model to generate the response
         prompt.push_str("### Response:\n");
 
-        // If extra_information has a "Response" key, add it to the prompt
-        if let Some(response) = extra_information.and_then(|h| h.get("Response")) {
-            prompt.push_str(response.as_ref());
+        // If extra_data has a "Response" key, add it to the prompt
+        if let Some(response) = extra_data.and_then(|h| h.get("Response")) {
+            prompt.push_str(&response.to_string());
         }
 
         prompt
     }
+    */
 
     fn create_phi15_instruct_instruct_prompt(
         instruction: impl AsRef<str>,
-        extra_information: Option<&HashMap<String, String>>,
+        extra_data: Option<&HashMap<String, InferValue>>,
     ) -> String {
         let mut prompt = String::new();
 
         // Start the system section
         prompt.push_str("<|im_start|>system\n");
 
-        // Get the role from extra_information if it exists
+        // Get the role from extra_data if it exists
         // Otherwise default to a default role
-        let role = extra_information
+        let role = extra_data
             .and_then(|h| h.get("Role"))
-            .map(|s| s.as_ref())
-            .unwrap_or("You are a helpful assistant.");
+            .map(|s| s.to_string())
+            .unwrap_or("You are a helpful assistant.".to_string());
 
         // Push the role to the system section
         prompt.push_str(&format!("{}\n", role));
         
-        // Push other extra information to the system section
+        // Push other extra data to the system section
         // Skip the "Role" and "Response" keys
-        if let Some(extra_information) = extra_information && !extra_information.is_empty() {
+        if let Some(extra_data) = extra_data && !extra_data.is_empty() {
             // First start with "What you know:" in case that helps the model
             prompt.push_str("What you know:\n");
 
-            // Add the other extra information to the system section
-            for (key, value) in extra_information {
+            // Add the other extra data to the system section
+            for (key, value) in extra_data {
                 if key != "Role" && key != "Response" {
                     prompt.push_str(&format!("{}: {}\n", key, value));
                 }
@@ -477,9 +479,9 @@ impl ModelType {
         // End the user section and start the assistant section (response)
         prompt.push_str("<|im_end|>\n<|im_start|>assistant\n");
 
-        // Start the response with the value of extra_information["Response"] if it exists
-        if let Some(response) = extra_information.and_then(|h| h.get("Response")) {
-            prompt.push_str(response.as_ref());
+        // Start the response with the value of extra_data["Response"] if it exists
+        if let Some(response) = extra_data.and_then(|h| h.get("Response")) {
+            prompt.push_str(&response.to_string());
         }
 
         prompt
@@ -966,7 +968,7 @@ impl TryInto<usize> for InferValue {
 }
 
 #[macro_export]
-macro_rules! inference_key_value_pairs {
+macro_rules! data_map {
     [$($key:expr => $value:expr),*$(,)?] => {
         {
             let mut map: std::collections::HashMap<String, $crate::model::InferValue> = HashMap::new();
