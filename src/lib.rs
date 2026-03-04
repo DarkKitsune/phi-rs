@@ -158,7 +158,7 @@ mod tests {
         // Solve an algebra problem
         let problem = "2x + 3 = 7";
         let solution = model.instruct(
-            format!("Solve the following algebra problem for x, showing all steps: {}", problem),
+            format!("Solve the following algebra problem for x: {}", problem),
             None,
             SEED,
             Some(TEMP),
@@ -218,5 +218,37 @@ mod tests {
 
         // Print the final map
         println!("Final map: {:#?}", map);
+    }
+
+    #[test]
+    fn generate_from_examples() {
+        const SEED: u64 = 246810;
+        const TEMP: f64 = 1.0;
+        const NUM_TO_GENERATE: usize = 20;
+        const EXAMPLES: &[&str] = &[
+            "The quick brown fox jumps over the lazy dog.",
+            "A fast, dark-colored fox leaps over a sleepy canine.",
+            "An agile, brown fox vaults over a lethargic dog.",
+            "A nimble, russet fox springs over a drowsy dog.",
+        ];
+
+        // Create the model
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+
+        println!("Generating {} similar sentences:", NUM_TO_GENERATE);
+
+        // Iterate and increment the seed to generate multiple similar sentences
+        for seed_add in 0..NUM_TO_GENERATE as u64 {
+            let generated = model.generate_similar(
+                "A sentence describing a fox jumping over a dog",
+                EXAMPLES,
+                SEED.wrapping_add(seed_add),
+                Some(TEMP),
+                None,
+                1.0,
+                0,
+            );
+            println!("{}", generated);
+        }
     }
 }
