@@ -6,6 +6,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ggmath = { path = "../ggmath" }
 anyhow = "1.0.98"
 candle-core = {features = ["cuda"], version = "0.9.2"}
 candle-nn = {features = ["cuda"], version = "0.9.2"}

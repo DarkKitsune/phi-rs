@@ -12,28 +12,46 @@ mod tests {
 
     #[test]
     fn choose_items() {
-        const SEED: u64 = 545856;
-        const ATTEMPTS: usize = 5;
+        const SEED: u64 = 32623;
+        const ATTEMPTS: usize = 7;
 
         // Create the model
         let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Present choices to the model
         let item = model.try_choose_item(
-            "You are a knight in a fantasy world.",
-            "The item should be a weapon capable of defeating a dragon.",
-            ["horse", "sword", "potion", "compass"],
+            "a weapon for a knight",
+            ["horse", "sword", "potion", "compass", "bow", "shield"],
             SEED,
+            0.2,
             ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
 
         let item = model.try_choose_item(
-            "You are a grade school teacher. There is a new student in your class. You want to make them feel welcome.",
-            "Something tasty",
+            "a soft toy",
             ["snacks", "ball", "coloring book", "stuffed animal", "book"],
             SEED,
-            ATTEMPTS
+            0.2,
+            ATTEMPTS,
+        );
+        println!("Chose item: {:?}", item);
+
+        let item = model.try_choose_item(
+            "the base of spaghetti sauce",
+            [
+                "bell pepper",
+                "tomato",
+                "cayenne pepper",
+                "ghost pepper",
+                "potato",
+                "onion",
+                "garlic",
+                "pineapple",
+            ],
+            SEED,
+            0.2,
+            ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
     }
@@ -54,7 +72,8 @@ mod tests {
                 .into_iter()
                 .map(|i| i.to_string())
                 .collect::<Vec<_>>()
-                .join(", ").into(),
+                .join(", ")
+                .into(),
         );
         extra.insert("Response".to_string(), "[".into()); // Start the response with a [ character
 
@@ -85,16 +104,18 @@ mod tests {
 
         // Expand a sentence
         let sentence = "The quick brown fox jumps over the lazy dog.";
-        let expanded = model.instruct(
-            format!("Expand the following sentence: {}", sentence),
-            None,
-            SEED,
-            Some(TEMP),
-            None,
-            1.0,
-            0,
-        )
-        .complete(&["\n"]).0;
+        let expanded = model
+            .instruct(
+                format!("Expand the following sentence: {}", sentence),
+                None,
+                SEED,
+                Some(TEMP),
+                None,
+                1.0,
+                0,
+            )
+            .complete(&["\n"])
+            .0;
 
         println!("Expanded sentence: {}", expanded);
     }
@@ -109,16 +130,18 @@ mod tests {
         let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Instruct the model to summarize the text
-        let summary = model.instruct(
-            format!("Very briefly summarize the following text: {}", TEXT),
-            None,
-            SEED,
-            Some(TEMP),
-            None,
-            1.0,
-            0,
-        )
-        .complete(&["\n"]).0;
+        let summary = model
+            .instruct(
+                format!("Very briefly summarize the following text: {}", TEXT),
+                None,
+                SEED,
+                Some(TEMP),
+                None,
+                1.0,
+                0,
+            )
+            .complete(&["\n"])
+            .0;
 
         println!("Summary: {}", summary);
     }
@@ -133,16 +156,10 @@ mod tests {
 
         // Generate a short story
         let prompt = "Write a short story about a brave knight who saves a village from a dragon.";
-        let story = model.instruct(
-            prompt,
-            None,
-            SEED,
-            Some(TEMP),
-            None,
-            1.0,
-            0,
-        )
-        .complete(&[]).0;
+        let story = model
+            .instruct(prompt, None, SEED, Some(TEMP), None, 1.0, 0)
+            .complete(&[])
+            .0;
 
         println!("Generated story: {}", story);
     }
@@ -157,16 +174,18 @@ mod tests {
 
         // Solve an algebra problem
         let problem = "2x + 3 = 7";
-        let solution = model.instruct(
-            format!("Solve the following algebra problem for x: {}", problem),
-            None,
-            SEED,
-            Some(TEMP),
-            None,
-            1.0,
-            0,
-        )
-        .complete(&[]).0;
+        let solution = model
+            .instruct(
+                format!("Solve the following algebra problem for x: {}", problem),
+                None,
+                SEED,
+                Some(TEMP),
+                None,
+                1.0,
+                0,
+            )
+            .complete(&[])
+            .0;
 
         println!("Solution to algebra problem: {}", solution);
     }
@@ -223,13 +242,16 @@ mod tests {
     #[test]
     fn generate_from_examples() {
         const SEED: u64 = 246810;
-        const TEMP: f64 = 1.0;
+        const TEMP: f64 = 0.7;
         const NUM_TO_GENERATE: usize = 20;
         const EXAMPLES: &[&str] = &[
             "The quick brown fox jumps over the lazy dog.",
-            "A fast, dark-colored fox leaps over a sleepy canine.",
-            "An agile, brown fox vaults over a lethargic dog.",
-            "A nimble, russet fox springs over a drowsy dog.",
+            "An agile, brown fox vaults over a lethargic canine creature.",
+            "A swift, brown fox hops over a sleepy dog.",
+            "One lazy dog was jumped over by a quick brown fox.",
+            "That fox just jumped over that dang dog!",
+            "From what I hear, the red fox that jumped over the dog was very quick.",
+            "The red fox quickly jumped over the sleeping dog, startling it awake."
         ];
 
         // Create the model

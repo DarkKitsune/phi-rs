@@ -16,7 +16,11 @@ impl Chat {
 
     /// Creates a new chat from a list of chat messages.
     pub fn from_messages(system_prompt: Option<String>, messages: Vec<ChatMessage>) -> Self {
-        Self { system_prompt: system_prompt.unwrap_or_else(|| "You are a helpful assistant.".to_string()), messages }
+        Self {
+            system_prompt: system_prompt
+                .unwrap_or_else(|| "You are a helpful assistant.".to_string()),
+            messages,
+        }
     }
 
     /// Push an existing chat message to the chat.
@@ -68,10 +72,7 @@ pub struct ChatMessage {
 impl ChatMessage {
     /// Creates a new chat message.
     pub fn new(sender: ChatRole, content: String) -> Self {
-        Self {
-            sender,
-            content,
-        }
+        Self { sender, content }
     }
 
     /// Returns the sender of the message.

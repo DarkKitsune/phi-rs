@@ -10,6 +10,7 @@ use candle_transformers::models::phi::{Config as PhiConfig, Model as Phi};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
+use ggmath::random::ToSeed;
 use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
@@ -169,7 +170,9 @@ impl Model {
         repeat_last_n: usize,
     ) -> InferIter {
         // Create the prompt
-        let prompt = self.model_type.create_instruct_prompt(instruction, extra_data);
+        let prompt = self
+            .model_type
+            .create_instruct_prompt(instruction, extra_data);
 
         // Begin inference
         self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
@@ -202,9 +205,42 @@ impl Model {
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> String {
+        const EXAMPLE_DROP_RATE: f64 = 0.25;
+        const MIN_EXAMPLES: usize = 2;
+
+        // Convert the examples to strings
+        let mut examples: Vec<String> = examples.iter().map(|e| e.to_string()).collect();
+
+        // If temp is provided, or EXAMPLE_DROP_RATE is larger than 0.0, shuffle the examples by sorting by random values generated from the seed
+        // This should help introduce more variety if desired
+        if temp.is_some() || EXAMPLE_DROP_RATE > 0.0 {
+            let mut example_drop_seed = seed;
+            examples.sort_by_key(|_| {
+                let key = example_drop_seed.into_random::<u32>();
+                example_drop_seed = example_drop_seed.wrapping_add(1);
+                key
+            });
+        }
+
+        // Optionally drop some of the examples based on EXAMPLE_DROP_RATE
+        if EXAMPLE_DROP_RATE > 0.0 {
+            // Calculate the number of examples to keep based on the drop rate
+            let number_to_keep =
+                (((1.0 - EXAMPLE_DROP_RATE) * examples.len() as f64).floor() as usize).max(MIN_EXAMPLES);
+
+            // Keep only the first `number_to_keep` examples
+            examples.truncate(number_to_keep);
+        }
+
         // Create the chat with the desired traits and examples given as chat messages
         let mut chat = Chat::new(Some("You are an assistant who generates a list of items based on the user's request. Be brief and concise.".to_string()));
-        chat.add_message(ChatRole::User, format!("I'm looking for a list of things that could be described as \"{}\"", desired_traits));
+        chat.add_message(
+            ChatRole::User,
+            format!(
+                "I'm looking for a list of things that could be described as \"{}\"",
+                desired_traits
+            ),
+        );
         for example in examples {
             chat.add_message(ChatRole::Model, example);
         }
@@ -219,14 +255,12 @@ impl Model {
     /// Returns the chosen item (lowercased and trimmed) if successful, otherwise None.
     pub fn try_choose_item(
         &self,
-        context: impl Display,
         desired_traits: impl Display,
-        items: impl IntoIterator<Item = impl AsRef<str>>,
+        items: impl IntoIterator<Item = impl Display>,
         seed: u64,
+        temp: f64,
         attempts: usize,
     ) -> Option<String> {
-        let mut prompt_extra = HashMap::new();
-
         // Make sure that seed + attempts doesn't overflow by subtracting u64::MAX / 2
         let seed = if seed > u64::MAX - attempts as u64 {
             seed - u64::MAX / 2
@@ -237,30 +271,35 @@ impl Model {
         // Trim and lowercase all the items
         let items: Vec<String> = items
             .into_iter()
-            .map(|item| item.as_ref().trim().to_lowercase())
+            .map(|item| item.to_string().trim().to_lowercase())
             .collect();
 
-        // Format the items like so: "[item1], [item2], [item3]"
-        let items_string = format!("[{}]", items.join("]["));
+        // Join the items into a comma-separated list
+        let items_string = items.join(", ");
 
-        // Add the context, items string and desired traits to the extra data
-        prompt_extra.insert("Context".to_string(), context.to_string().into());
-        prompt_extra.insert("Items".to_string(), items_string.into());
-        prompt_extra.insert("Desired Traits".to_string(), desired_traits.to_string().into());
+        // Create the chat with the context, desired traits, and items
+        let mut chat = Chat::new(None);
 
-        // Start the response with a [ character
-        prompt_extra.insert("Response".to_string(), "[".to_string().into());
-
-        // Create the prompt
-        let prompt = self.model_type.create_instruct_prompt(
-            "Choose the most appropriate item for the context and desired traits.",
-            Some(&prompt_extra),
+        // Add the user's messages with the desired traits and items
+        chat.add_message(ChatRole::User, format!("List of items: {}", items_string));
+        chat.add_message(
+            ChatRole::User,
+            format!(
+                "Please select the item from the list which most fits the description: \"{}\"",
+                desired_traits
+            ),
         );
+
+        // Create the prompt from the chat
+        let mut prompt = self.model_type.create_chat_prompt(&chat);
+
+        // Append a " to the end of the prompt to encourage the model to name an item in quotes
+        prompt.push_str(format!("The most fitting item is: ").as_str());
 
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity
         let mut response = None;
-        let mut temperature = 0.2;
+        let mut temperature = temp;
         for seed in seed..seed + attempts as u64 {
             // Clone the items
             let mut possible_items = items.clone();
@@ -383,7 +422,9 @@ impl Model {
         let kvp: Vec<_> = kvp.into_iter().collect();
         for idx in 0..attempts {
             // Try to infer the value for the given key
-            if let Ok(value) = self.infer_key_value(kvp.clone(), key, seed.wrapping_add(idx as u64), temp) {
+            if let Ok(value) =
+                self.infer_key_value(kvp.clone(), key, seed.wrapping_add(idx as u64), temp)
+            {
                 // Try to convert the inferred value to the desired type
                 // If the conversion was successful, return the converted value
                 let attempted_conversion = value.try_into();
@@ -437,7 +478,9 @@ impl ModelType {
     ) -> String {
         match self {
             // ModelType::PhiHermes => Self::create_phi_hermes_instruct_prompt(instruction, extra_data),
-            ModelType::Phi15Instruct => Self::create_phi15_instruct_instruct_prompt(instruction, extra_data),
+            ModelType::Phi15Instruct => {
+                Self::create_phi15_instruct_instruct_prompt(instruction, extra_data)
+            }
         }
     }
 
@@ -493,10 +536,12 @@ impl ModelType {
 
         // Push the role to the system section
         prompt.push_str(&format!("{}\n", role));
-        
+
         // Push other extra data to the system section
         // Skip the "Role" and "Response" keys
-        if let Some(extra_data) = extra_data && !extra_data.is_empty() {
+        if let Some(extra_data) = extra_data
+            && !extra_data.is_empty()
+        {
             // First start with "What you know:" in case that helps the model
             prompt.push_str("What you know:\n");
 
@@ -524,7 +569,7 @@ impl ModelType {
 
         prompt
     }
-    
+
     /// Creates a chat prompt meant for this type of Phi model.
     pub fn create_chat_prompt(&self, chat: &Chat) -> String {
         match self {
@@ -532,21 +577,30 @@ impl ModelType {
             ModelType::Phi15Instruct => Self::create_phi15_instruct_chat_prompt(chat),
         }
     }
-    
+
     fn create_phi15_instruct_chat_prompt(chat: &Chat) -> String {
         let mut prompt = String::new();
 
         // Add the system prompt to the system section
-        prompt.push_str(&format!("<|im_start|>system\n{}\n<|im_end|>\n", chat.system_prompt()));
+        prompt.push_str(&format!(
+            "<|im_start|>system\n{}\n<|im_end|>\n",
+            chat.system_prompt()
+        ));
 
         // Add each message in the chat to the prompt as a new section
         for message in chat {
             match message.sender() {
                 ChatRole::User => {
-                    prompt.push_str(&format!("<|im_start|>user\n{}\n<|im_end|>\n", message.content()));
+                    prompt.push_str(&format!(
+                        "<|im_start|>user\n{}\n<|im_end|>\n",
+                        message.content()
+                    ));
                 }
                 ChatRole::Model => {
-                    prompt.push_str(&format!("<|im_start|>assistant\n{}\n<|im_end|>\n", message.content()));
+                    prompt.push_str(&format!(
+                        "<|im_start|>assistant\n{}\n<|im_end|>\n",
+                        message.content()
+                    ));
                 }
             }
         }
@@ -661,7 +715,9 @@ impl InferIter {
     /// and return everything up to that point as a `String`, as well as the end sequence that was reached
     pub fn complete<'a>(mut self, end_sequences: &'a [&str]) -> (String, Option<&'a str>) {
         let mut response = String::new();
-        while let Some(token) = self.next_token() && token < self.vocab_size as u32 - 1 {
+        while let Some(token) = self.next_token()
+            && token < self.vocab_size as u32 - 1
+        {
             let token_str = self.tokens.model.detokenize(&[token]);
             // Exit early if token_str formed any stop sequence, cutting off the response at that point
             for end_sequence in end_sequences {
@@ -671,7 +727,7 @@ impl InferIter {
                     return (response, Some(end_sequence));
                 }
             }
-            
+
             response.push_str(&token_str);
         }
 
