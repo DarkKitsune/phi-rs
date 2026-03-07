@@ -189,7 +189,14 @@ impl Model {
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> InferIter {
-        let prompt = self.model_type.create_chat_prompt(chat);
+        // Generate the basic chat prompt
+        let mut prompt = self.model_type.create_chat_prompt(chat);
+
+        // Append the response prefix
+        if let Some(prefix) = chat.response_prefix() {
+            prompt.push_str(prefix);
+        }
+
         self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
             .unwrap()
     }
@@ -234,20 +241,26 @@ impl Model {
         }
 
         // Create the chat with the desired traits and examples given as chat messages
-        let mut chat = Chat::new(Some("You are an assistant who generates a list of items based on the user's request. Be brief and concise.".to_string()));
+        let mut chat = Chat::new(Some(
+            "You are an assistant who generates a list of items based on the user's request. Be brief and concise.
+            Format each response in brackets such as \"[Item]\".".to_string()
+        ));
         chat.add_message(
             ChatRole::User,
             format!(
-                "I'm looking for a list of things that could be described as \"{}\"",
+                "I'm looking for a list of things that could be described as \"{}\".",
                 desired_traits
             ),
         );
         for example in examples {
-            chat.add_message(ChatRole::Model, example);
+            chat.add_message(ChatRole::Model, format!("[{}]", example));
         }
 
+        // Set the response prefix to "[" to encourage generating a "]"
+        chat.set_response_prefix("[");
+
         self.chat(&chat, seed, temp, top_p, repeat_penalty, repeat_last_n)
-            .complete(&["\n"])
+            .complete(&["]", "\n"])
             .0
     }
 

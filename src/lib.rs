@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn generate_from_examples() {
         const SEED: u64 = 246810;
-        const TEMP: f64 = 0.7;
+        const TEMP: f64 = 0.5;
         const NUM_TO_GENERATE: usize = 20;
         const EXAMPLES: &[&str] = &[
             "The quick brown fox jumps over the lazy dog.",

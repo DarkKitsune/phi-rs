@@ -6,6 +6,8 @@ pub struct Chat {
     system_prompt: String,
     /// The messages in the chat.
     messages: Vec<ChatMessage>,
+    /// The model's response is treated as if this text was prepended.
+    response_prefix: Option<String>,
 }
 
 impl Chat {
@@ -20,6 +22,7 @@ impl Chat {
             system_prompt: system_prompt
                 .unwrap_or_else(|| "You are a helpful assistant.".to_string()),
             messages,
+            response_prefix: None,
         }
     }
 
@@ -42,6 +45,24 @@ impl Chat {
     /// Returns the system prompt for the chat.
     pub fn system_prompt(&self) -> &str {
         &self.system_prompt
+    }
+
+    /// Set the system prompt for the chat.
+    pub fn set_system_prompt(&mut self, prompt: impl Into<String>) {
+        self.system_prompt = prompt.into();
+    }
+
+    /// Returns the response prefix for the chat, if set.
+    pub fn response_prefix(&self) -> Option<&str> {
+        self.response_prefix.as_deref()
+    }
+
+    /// Sets the response prefix for the chat.
+    /// The model's response is treated as if this text was prepended before.
+    /// This is useful to limit responses to a certain format, size, or content,
+    /// especially when used with an equivalent end sequence.
+    pub fn set_response_prefix(&mut self, prefix: impl Into<String>) {
+        self.response_prefix = Some(prefix.into());
     }
 }
 
