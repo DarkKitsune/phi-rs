@@ -1,14 +1,11 @@
 pub mod chat;
 pub mod model;
+pub mod prelude;
 pub mod token_string;
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::model::{Model, ModelType};
-
-    use super::*;
+    use crate::prelude::*;
 
     #[test]
     fn choose_items() {
@@ -251,7 +248,7 @@ mod tests {
             "One lazy dog was jumped over by a quick brown fox.",
             "That fox just jumped over that dang dog!",
             "From what I hear, the red fox that jumped over the dog was very quick.",
-            "The red fox quickly jumped over the sleeping dog, startling it awake."
+            "The red fox quickly jumped over the sleeping dog, startling it awake.",
         ];
 
         // Create the model

@@ -225,8 +225,9 @@ impl Model {
         // Optionally drop some of the examples based on EXAMPLE_DROP_RATE
         if EXAMPLE_DROP_RATE > 0.0 {
             // Calculate the number of examples to keep based on the drop rate
-            let number_to_keep =
-                (((1.0 - EXAMPLE_DROP_RATE) * examples.len() as f64).floor() as usize).max(MIN_EXAMPLES);
+            let number_to_keep = (((1.0 - EXAMPLE_DROP_RATE) * examples.len() as f64).floor()
+                as usize)
+                .max(MIN_EXAMPLES);
 
             // Keep only the first `number_to_keep` examples
             examples.truncate(number_to_keep);
@@ -1064,7 +1065,7 @@ macro_rules! data_map {
     [$($key:expr => $value:expr),*$(,)?] => {
         {
             #[allow(unused_mut)]
-            let mut map: std::collections::HashMap<String, $crate::model::InferValue> = HashMap::new();
+            let mut map: std::collections::HashMap<String, $crate::model::InferValue> = std::collections::HashMap::new();
             $(
                 map.insert($key.to_string(), $crate::model::InferValue::from($value));
             )*
