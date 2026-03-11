@@ -1,10 +1,14 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
+
+use crate::model::InferValue;
 
 /// Represents a chat between user and model.
 #[derive(Clone, Debug)]
 pub struct Chat {
     /// The system prompt.
-    system_prompt: String,
+    system_prompt: Option<String>,
+    /// Extra data associated with the chat.
+    extra_data: HashMap<String, InferValue>,
     /// The messages in the chat.
     messages: Vec<ChatMessage>,
     /// The model's response is treated as if this text was prepended.
@@ -13,15 +17,15 @@ pub struct Chat {
 
 impl Chat {
     /// Creates a new chat with no messages.
-    pub fn new(system_prompt: Option<String>) -> Self {
-        Self::from_messages(system_prompt, Vec::new())
+    pub fn new() -> Self {
+        Self::from_messages(Vec::new())
     }
 
     /// Creates a new chat from a list of chat messages.
-    pub fn from_messages(system_prompt: Option<String>, messages: Vec<ChatMessage>) -> Self {
+    pub fn from_messages(messages: Vec<ChatMessage>) -> Self {
         Self {
-            system_prompt: system_prompt
-                .unwrap_or_else(|| "You are a helpful assistant.".to_string()),
+            system_prompt: None,
+            extra_data: HashMap::new(),
             messages,
             response_prefix: None,
         }
@@ -39,18 +43,33 @@ impl Chat {
     }
 
     /// Returns a reference to the messages in the chat.
-    pub fn messages(&self) -> &Vec<ChatMessage> {
+    pub fn messages(&self) -> &[ChatMessage] {
         &self.messages
     }
 
     /// Returns the system prompt for the chat.
     pub fn system_prompt(&self) -> &str {
-        &self.system_prompt
+        self.system_prompt.as_deref().unwrap_or("You are a helpful assistant.")
     }
 
     /// Set the system prompt for the chat.
     pub fn set_system_prompt(&mut self, prompt: impl Display) {
-        self.system_prompt = prompt.to_string();
+        self.system_prompt = Some(prompt.to_string());
+    }
+
+    /// Returns a reference to the extra data associated with the chat.
+    pub fn extra_data(&self) -> &HashMap<String, InferValue> {
+        &self.extra_data
+    }
+
+    /// Returns a mutable reference to the extra data associated with the chat.
+    pub fn extra_data_mut(&mut self) -> &mut HashMap<String, InferValue> {
+        &mut self.extra_data
+    }
+
+    /// Replaces the extra data associated with the chat using the given map.
+    pub fn set_extra_data(&mut self, data: HashMap<String, InferValue>) {
+        self.extra_data = data;
     }
 
     /// Returns the response prefix for the chat, if set.
