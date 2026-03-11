@@ -237,11 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn generate_from_examples() {
+    fn generate_dog_sentences() {
         const SEED: u64 = 246810;
-        const TEMP: f64 = 0.5;
-        const NUM_TO_GENERATE: usize = 20;
-        const EXAMPLES: &[&str] = &[
+        const TEMP: f64 = 0.6;
+        const NUM_TO_GENERATE: usize = 7;
+        const DOG_EXAMPLES: &[&str] = &[
             "The quick brown fox jumps over the lazy dog.",
             "An agile, brown fox vaults over a lethargic canine creature.",
             "A swift, brown fox hops over a sleepy dog.",
@@ -254,18 +254,46 @@ mod tests {
         // Create the model
         let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
-        println!("Generating {} similar sentences:", NUM_TO_GENERATE);
+        // Start dog sentences
+        println!("Generating {}  fox jumping over a dog sentences:", NUM_TO_GENERATE);
 
         // Iterate and increment the seed to generate multiple similar sentences
         for seed_add in 0..NUM_TO_GENERATE as u64 {
             let generated = model.generate_similar(
                 "A sentence describing a fox jumping over a dog",
-                EXAMPLES,
+                DOG_EXAMPLES,
                 SEED.wrapping_add(seed_add),
                 Some(TEMP),
-                None,
-                1.0,
-                0,
+            );
+            println!("{}", generated);
+        }
+    }
+
+    #[test]
+    fn generate_boss_names() {
+        const SEED: u64 = 567869;
+        const TEMP: f64 = 0.6;
+        const NUM_TO_GENERATE: usize = 7;
+        const GAME_BOSS_NAME_EXAMPLES: &[&str] = &[
+            "Gorath the Destroyer",
+            "Zaldrath the Conqueror",
+            "Fallen Angel Idriel",
+            "The Dark Sorcerer Malakar"
+        ];
+
+        // Create the model
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+        
+        // Start game boss names
+        println!("Generating {} game boss names:", NUM_TO_GENERATE);
+        
+        // Iterate and increment the seed to generate multiple game boss names
+        for seed_add in 0..NUM_TO_GENERATE as u64 {
+            let generated = model.generate_similar(
+                "An intimidating but short name for a role-playing game boss",
+                GAME_BOSS_NAME_EXAMPLES,
+                SEED.wrapping_add(seed_add),
+                Some(TEMP),
             );
             println!("{}", generated);
         }

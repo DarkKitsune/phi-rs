@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 /// Represents a chat between user and model.
+#[derive(Clone, Debug)]
 pub struct Chat {
     /// The system prompt.
     system_prompt: String,
@@ -48,8 +49,8 @@ impl Chat {
     }
 
     /// Set the system prompt for the chat.
-    pub fn set_system_prompt(&mut self, prompt: impl Into<String>) {
-        self.system_prompt = prompt.into();
+    pub fn set_system_prompt(&mut self, prompt: impl Display) {
+        self.system_prompt = prompt.to_string();
     }
 
     /// Returns the response prefix for the chat, if set.
@@ -61,8 +62,8 @@ impl Chat {
     /// The model's response is treated as if this text was prepended before.
     /// This is useful to limit responses to a certain format, size, or content,
     /// especially when used with an equivalent end sequence.
-    pub fn set_response_prefix(&mut self, prefix: impl Into<String>) {
-        self.response_prefix = Some(prefix.into());
+    pub fn set_response_prefix(&mut self, prefix: Option<String>) {
+        self.response_prefix = prefix;
     }
 }
 
@@ -85,6 +86,7 @@ impl<'a> IntoIterator for &'a Chat {
 }
 
 /// Represents a single message in a chat.
+#[derive(Clone, Debug)]
 pub struct ChatMessage {
     sender: ChatRole,
     content: String,
@@ -108,6 +110,7 @@ impl ChatMessage {
 }
 
 /// Represents the role of a participant in a chat.
+#[derive(Clone, Debug)]
 pub enum ChatRole {
     User,
     Model,

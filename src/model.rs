@@ -208,12 +208,9 @@ impl Model {
         examples: &[impl Display],
         seed: u64,
         temp: Option<f64>,
-        top_p: Option<f64>,
-        repeat_penalty: f32,
-        repeat_last_n: usize,
     ) -> String {
         const EXAMPLE_DROP_RATE: f64 = 0.25;
-        const MIN_EXAMPLES: usize = 2;
+        const MIN_EXAMPLES: usize = 3;
 
         // Convert the examples to strings
         let mut examples: Vec<String> = examples.iter().map(|e| e.to_string()).collect();
@@ -242,24 +239,30 @@ impl Model {
 
         // Create the chat with the desired traits and examples given as chat messages
         let mut chat = Chat::new(Some(
-            "You are an assistant who generates a list of items based on the user's request. Be brief and concise.
+            "You are an assistant who comes up with ideas based on the user's request. Be brief and concise.
             Format each response in brackets such as \"[Item]\".".to_string()
         ));
         chat.add_message(
             ChatRole::User,
             format!(
-                "I'm looking for a list of things that could be described as \"{}\".",
+                "I'm looking for things that could be described as \"{}\". Can you provide me an example?",
                 desired_traits
             ),
         );
+        let mut first_example = true;
         for example in examples {
-            chat.add_message(ChatRole::Model, format!("[{}]", example));
+            // If this is not the first example, insert a user message asking for another example
+            if !first_example {
+                chat.add_message(ChatRole::User, "Can you provide another example?".to_string());
+            }
+            first_example = false;
+            chat.add_message(ChatRole::Model, format!("Here's an example that fits what you described: [{}]", example));
         }
 
         // Set the response prefix to "[" to encourage generating a "]"
-        chat.set_response_prefix("[");
+        chat.set_response_prefix(Some("[".to_string()));
 
-        self.chat(&chat, seed, temp, top_p, repeat_penalty, repeat_last_n)
+        self.chat(&chat, seed, temp, None, 1.2, 128)
             .complete(&["]", "\n"])
             .0
     }
@@ -733,13 +736,18 @@ impl InferIter {
             && token < self.vocab_size as u32 - 1
         {
             let token_str = self.tokens.model.detokenize(&[token]);
-            // Exit early if token_str formed any stop sequence, cutting off the response at that point
-            for end_sequence in end_sequences {
-                if let Some(pos) = token_str.find(end_sequence) {
-                    response.push_str(&token_str[..pos]);
-                    self.reached_eos = true;
-                    return (response, Some(end_sequence));
-                }
+
+            // Exit early at the first stop sequence from end_sequences encountered in token_str, cutting off the response at that point
+            let found_stop_sequence_position = end_sequences
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, &seq)| token_str.find(seq).map(|pos| (idx, pos)))
+                .min_by_key(|&(_, pos)| pos);
+
+            if let Some((idx, pos)) = found_stop_sequence_position {
+                response.push_str(&token_str[..pos]);
+                self.reached_eos = true;
+                return (response, Some(end_sequences[idx]));
             }
 
             response.push_str(&token_str);
