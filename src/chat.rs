@@ -8,7 +8,7 @@ pub struct Chat {
     /// The system prompt.
     system_prompt: Option<String>,
     /// Extra data associated with the chat.
-    extra_data: HashMap<String, InferValue>,
+    extra_data: Option<HashMap<String, InferValue>>,
     /// The messages in the chat.
     messages: Vec<ChatMessage>,
     /// The model's response is treated as if this text was prepended.
@@ -25,7 +25,7 @@ impl Chat {
     pub fn from_messages(messages: Vec<ChatMessage>) -> Self {
         Self {
             system_prompt: None,
-            extra_data: HashMap::new(),
+            extra_data: None,
             messages,
             response_prefix: None,
         }
@@ -49,7 +49,10 @@ impl Chat {
 
     /// Returns the system prompt for the chat.
     pub fn system_prompt(&self) -> &str {
-        self.system_prompt.as_deref().unwrap_or("You are a helpful assistant.")
+        self.system_prompt.as_deref().unwrap_or(
+            "You are a helpful assistant whose job is to use what you know to
+help the user with any problem they have."
+        )
     }
 
     /// Set the system prompt for the chat.
@@ -58,18 +61,21 @@ impl Chat {
     }
 
     /// Returns a reference to the extra data associated with the chat.
-    pub fn extra_data(&self) -> &HashMap<String, InferValue> {
-        &self.extra_data
+    pub fn extra_data(&self) -> Option<&HashMap<String, InferValue>> {
+        self.extra_data.as_ref()
     }
 
     /// Returns a mutable reference to the extra data associated with the chat.
     pub fn extra_data_mut(&mut self) -> &mut HashMap<String, InferValue> {
-        &mut self.extra_data
+        if self.extra_data.is_none() {
+            self.extra_data = Some(HashMap::new());
+        }
+        self.extra_data.as_mut().unwrap()
     }
 
     /// Replaces the extra data associated with the chat using the given map.
     pub fn set_extra_data(&mut self, data: HashMap<String, InferValue>) {
-        self.extra_data = data;
+        self.extra_data = Some(data);
     }
 
     /// Returns the response prefix for the chat, if set.

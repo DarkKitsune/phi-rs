@@ -167,12 +167,7 @@ impl Model {
         repeat_last_n: usize,
     ) -> InferIter {
         // Generate the basic chat prompt
-        let mut prompt = self.model_type.create_chat_prompt(chat);
-
-        // Append the response prefix
-        if let Some(prefix) = chat.response_prefix() {
-            prompt.push_str(prefix);
-        }
+        let prompt = self.model_type.create_chat_prompt(chat);
 
         self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
             .unwrap()
@@ -219,7 +214,7 @@ impl Model {
         chat.add_message(
             ChatRole::User,
             format!(
-                "I'm looking for things that could be described as \"{}\". Can you provide me an example?",
+                "I'm looking for things that could be described as \"{}\". Please provide an example.",
                 desired_traits
             ),
         );
@@ -227,16 +222,16 @@ impl Model {
         for example in examples {
             // If this is not the first example, insert a user message asking for another example
             if !first_example {
-                chat.add_message(ChatRole::User, "Can you provide another example?".to_string());
+                chat.add_message(ChatRole::User, "Please provide another.".to_string());
             }
             first_example = false;
-            chat.add_message(ChatRole::Model, format!("Here's an example that fits what you described: [{}]", example));
+            chat.add_message(ChatRole::Model, format!("Here's an example like you described: [{}]", example));
         }
 
         // Set the response prefix to "[" to encourage generating a "]"
         chat.set_response_prefix(Some("[".to_string()));
 
-        self.chat(&chat, seed, temp, None, 1.2, 128)
+        self.chat(&chat, seed, temp, None, 1.1, 128)
             .complete(&["]", "\n"])
             .0
     }
@@ -266,26 +261,32 @@ impl Model {
             .collect();
 
         // Join the items into a comma-separated list
-        let items_string = items.join(", ");
+        let items_string = format!("[\"{}\"]", items.join("\", \""));
 
         // Create the chat with the context, desired traits, and items
         let mut chat = Chat::new();
 
+        // Set the system prompt to tell the model what its role should be
+        chat.set_system_prompt("You are an assistant whose job is to help the user
+choose things from a list based on their given criteria.");
+
+        // Set the item list in extra data
+        chat.extra_data_mut().insert("List".to_string(), items_string.into());
+
         // Add the user's messages with the desired traits and items
-        chat.add_message(ChatRole::User, format!("List of items: {}", items_string));
         chat.add_message(
             ChatRole::User,
             format!(
-                "Please select the item from the list which most fits the description: \"{}\"",
+                "Tell me which item or thing in List you would describe as \"{}\"?",
                 desired_traits
             ),
         );
 
-        // Create the prompt from the chat
-        let mut prompt = self.model_type.create_chat_prompt(&chat);
+        // Set the response prefix to end with a " so the model generates another "
+        chat.set_response_prefix(Some("The closest item in List is \"".to_string()));
 
-        // Append a " to the end of the prompt to encourage the model to name an item in quotes
-        prompt.push_str(format!("The most fitting item is: ").as_str());
+        // Create the prompt from the chat
+        let prompt = self.model_type.create_chat_prompt(&chat);
 
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity
@@ -365,10 +366,17 @@ impl ModelType {
 
     /// Creates a chat prompt meant for this type of Phi model.
     pub fn create_chat_prompt(&self, chat: &Chat) -> String {
-        match self {
+        let mut prompt = match self {
             // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat),
             ModelType::Phi15Instruct => Self::create_phi15_instruct_chat_prompt(chat),
+        };
+
+        // Append the response prefix
+        if let Some(prefix) = chat.response_prefix() {
+            prompt.push_str(prefix);
         }
+
+        prompt
     }
 
     fn create_phi15_instruct_chat_prompt(chat: &Chat) -> String {
@@ -376,10 +384,20 @@ impl ModelType {
 
         // Add the system prompt to the system section
         prompt.push_str(&format!(
-            "<|im_start|>system\n{}\n{}\n<|im_end|>\n",
+            "<|im_start|>system\n{}\n",
             chat.system_prompt(),
-            chat.extra_data().iter().filter(|(k, _)| *k != "Role" && *k != "Response").map(|(k, v)| format!("{}: {}", k, v)).collect::<Vec<_>>().join("\n")
         ));
+
+        // Also add extra data as key-value pairs for the model to understand
+        if let Some(extra_data) = chat.extra_data() {
+            prompt.push_str(&format!(
+                "What you know: {{\n{}\n}}\n",
+                extra_data.iter().map(|(k, v)| format!("\"{}\" = {}", k, v)).collect::<Vec<_>>().join("\n")
+            ));
+        }
+
+        // Finally end the system prompt
+        prompt.push_str("<|im_end|>\n");
 
         // Add each message in the chat to the prompt as a new section
         for message in chat {
