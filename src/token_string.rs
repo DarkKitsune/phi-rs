@@ -46,6 +46,14 @@ impl TokenString {
         self.tokens.truncate(len);
     }
 
+    /// Truncate the token string to a maximum number of tokens, but from the end of the string
+    pub fn truncate_rev(&mut self, len: usize) {
+        let excess = self.tokens.len().saturating_sub(len);
+        if excess > 0 {
+            self.tokens.drain(0..excess);
+        }
+    }
+
     /// Get the number of tokens
     pub fn len(&self) -> usize {
         self.tokens.len()

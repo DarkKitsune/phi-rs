@@ -8,6 +8,31 @@ mod tests {
     use crate::prelude::*;
 
     #[test]
+    fn chat() {
+        const SEED: u64 = 546457;
+        const TEMP: f64 = 0.6;
+        const CONVERSATION_TURNS: usize = 3;
+
+        // Create the model
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+
+        // Start a chat
+        let mut chat = Chat::new();
+        chat.set_system_prompt("You are a talkative and entertaining person to talk to.");
+
+        // Infer a conversation
+        for _ in 0 .. CONVERSATION_TURNS {
+            // Generate a user message
+            chat.infer_message(ChatRole::User, &model, SEED, Some(TEMP), 1.1, 64, false);
+            println!("\n{}", chat.last_message().unwrap());
+
+            // Generate a model message
+            chat.infer_message(ChatRole::Model, &model, SEED, Some(TEMP), 1.1, 64, false);
+            println!("\n{}", chat.last_message().unwrap());
+        }
+    }
+
+    #[test]
     fn choose_items() {
         const SEED: u64 = 32623;
         const ATTEMPTS: usize = 7;
@@ -72,7 +97,10 @@ mod tests {
         let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Start dog sentences
-        println!("Generating {}  fox jumping over a dog sentences:", NUM_TO_GENERATE);
+        println!(
+            "Generating {}  fox jumping over a dog sentences:",
+            NUM_TO_GENERATE
+        );
 
         // Iterate and increment the seed to generate multiple similar sentences
         for seed_add in 0..NUM_TO_GENERATE as u64 {
@@ -87,32 +115,20 @@ mod tests {
     }
 
     #[test]
-    fn generate_boss_names() {
-        const SEED: u64 = 567869;
-        const TEMP: f64 = 0.6;
-        const NUM_TO_GENERATE: usize = 7;
-        const GAME_BOSS_NAME_EXAMPLES: &[&str] = &[
-            "Gorath the Destroyer",
-            "Zaldrath the Conqueror",
-            "Fallen Angel Idriel",
-            "The Dark Sorcerer Malakar"
-        ];
+    fn expand_and_summarize() {
+        const SEED: u64 = 13579;
 
         // Create the model
         let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
-        
-        // Start game boss names
-        println!("Generating {} game boss names:", NUM_TO_GENERATE);
-        
-        // Iterate and increment the seed to generate multiple game boss names
-        for seed_add in 0..NUM_TO_GENERATE as u64 {
-            let generated = model.generate_similar(
-                "An intimidating but short name for a role-playing game boss",
-                GAME_BOSS_NAME_EXAMPLES,
-                SEED.wrapping_add(seed_add),
-                Some(TEMP),
-            );
-            println!("{}", generated);
-        }
+
+        let text = "The quick brown fox jumps over the lazy dog. The cow jumps over the moon.";
+
+        // Expand the text
+        let expanded = model.expand(text, SEED, Some(0.6));
+        println!("Expanded text: {}", expanded);
+
+        // Summarize the text
+        let summary = model.summarize_to_tokens(&expanded, 50, false, SEED, 0.1, 5);
+        println!("Summary: {}", summary);
     }
 }

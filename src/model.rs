@@ -65,6 +65,10 @@ impl Model {
         })
     }
 
+    pub fn model_type(&self) -> &ModelType {
+        &self.model_type
+    }
+
     pub fn seed(&self) -> u64 {
         self.seed
     }
@@ -160,6 +164,7 @@ impl Model {
     pub fn chat(
         &self,
         chat: &Chat,
+        sender: ChatRole,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
@@ -167,7 +172,7 @@ impl Model {
         repeat_last_n: usize,
     ) -> InferIter {
         // Generate the basic chat prompt
-        let prompt = self.model_type.create_chat_prompt(chat);
+        let prompt = self.model_type.create_chat_prompt(chat, sender);
 
         self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
             .unwrap()
@@ -225,14 +230,115 @@ impl Model {
                 chat.add_message(ChatRole::User, "Please provide another.".to_string());
             }
             first_example = false;
-            chat.add_message(ChatRole::Model, format!("Here's an example like you described: [{}]", example));
+            chat.add_message(
+                ChatRole::Model,
+                format!("Here's an example like you described: [{}]", example),
+            );
         }
 
         // Set the response prefix to "[" to encourage generating a "]"
         chat.set_response_prefix(Some("[".to_string()));
 
-        self.chat(&chat, seed, temp, None, 1.1, 128)
+        self.chat(&chat, ChatRole::Model, seed, temp, None, 1.1, 128)
             .complete(&["]", "\n"])
+            .0
+    }
+
+    /// Summarize a string using the model.
+    pub fn summarize(&self, text: impl AsRef<str>, seed: u64, temp: Option<f64>) -> String {
+        let text = text.as_ref();
+        let mut chat = Chat::new();
+
+        // Set the system prompt to tell the model what its role should be
+        chat.set_system_prompt(
+            "You are an assistant whose job is to summarize text provided by the user. Keep it brief and concise, and wrap your summary in double quotes.",
+        );
+
+        // Add a user message asking the model to summarize the text
+        chat.add_message(ChatRole::User, format!("Please summarize the following text:\n{}", text));
+
+        // Set the response prefix to avoid extra fluff
+        chat.set_response_prefix(Some("Certainly, here is my summary of the text you provided:\n\"".to_string()));
+
+        self.chat(&chat, ChatRole::Model, seed, temp, None, 1.0, 0)
+            .complete(&["\"", "\n"])
+            .0
+    }
+
+    /// Summarize a string while forcing it into the given token count.
+    /// If summarizing to this size fails, attempts for 'attempts' times.
+    /// On a total failure, returns `None`.
+    pub fn try_summarize_to_tokens(&self, text: impl AsRef<str>, token_count: usize, seed: u64, mut temp: f64, attempts: usize) -> Option<String> {
+        let text = text.as_ref();
+
+        // Look for a summary for `attempts` times
+        for attempt in 0..attempts {
+            // Attempt summarization and get token length
+            let summary = self.summarize(text, seed.wrapping_add(attempt as u64), Some(temp));
+            let summary_tokens = self.tokenize_str(&summary).len();
+
+            if summary_tokens <= token_count {
+                return Some(summary);
+            }
+            
+            temp += 0.1;
+        }
+
+        None
+    }
+
+    /// Summarize a string while forcing it into the given token count.
+    /// If summarizing to this size fails, attempts for 'attempts' times.
+    /// On a total failure, forcefully truncates the summary to the given token count.
+    pub fn summarize_to_tokens(&self, text: impl AsRef<str>, token_count: usize, truncate_towards_end: bool, seed: u64, mut temp: f64, attempts: usize) -> String {
+        let text = text.as_ref();
+
+        // Look for a summary for `attempts` times
+        let mut summary = String::new();
+        for attempt in 0..attempts {
+            // Attempt summarization and get token length
+            summary = self.summarize(text, seed.wrapping_add(attempt as u64), Some(temp));
+            let summary_tokens = self.tokenize_str(&summary).len();
+
+            if summary_tokens <= token_count {
+                return summary;
+            }
+
+            temp += 0.1;
+        }
+
+        // If we couldn't get a summary within the token count, truncate the last summary
+        let mut tokens = self.tokenize_str(&summary);
+        if truncate_towards_end {
+            tokens.truncate_rev(token_count);
+        }
+        else {
+            tokens.truncate(token_count);
+        }
+
+        let truncated = self.tokenize(tokens);
+        truncated.to_string()
+    }
+
+
+    /// Expand a string with more detail using the model.
+    pub fn expand(&self, text: impl AsRef<str>, seed: u64, temp: Option<f64>) -> String {
+        let text = text.as_ref();
+        let mut chat = Chat::new();
+
+        // Set the system prompt to tell the model what its role should be
+        chat.set_system_prompt(
+            "You are an assistant whose job is to expand text provided by the user with more detail. Wrap your summary in double quotes.",
+        );
+
+        // Add a user message asking the model to expand the text
+        chat.add_message(ChatRole::User, format!("Please expand the following text with more detail:\n{}", text));
+
+        // Set the response prefix to avoid extra fluff
+        chat.set_response_prefix(Some("Certainly, here is the expanded version of the text you provided:\n\"".to_string()));
+
+        self.chat(&chat, ChatRole::Model, seed, temp, None, 1.1, 64)
+            .complete(&["\"", "\n"])
             .0
     }
 
@@ -267,11 +373,13 @@ impl Model {
         let mut chat = Chat::new();
 
         // Set the system prompt to tell the model what its role should be
-        chat.set_system_prompt("You are an assistant whose job is to help the user
-choose things from a list based on their given criteria.");
+        chat.set_system_prompt(
+            "You are an assistant whose job is to help the user choose things from a list based on their given criteria.",
+        );
 
         // Set the item list in extra data
-        chat.extra_data_mut().insert("List".to_string(), items_string.into());
+        chat.extra_data_mut()
+            .insert("List".to_string(), items_string.into());
 
         // Add the user's messages with the desired traits and items
         chat.add_message(
@@ -286,7 +394,7 @@ choose things from a list based on their given criteria.");
         chat.set_response_prefix(Some("The closest item in List is \"".to_string()));
 
         // Create the prompt from the chat
-        let prompt = self.model_type.create_chat_prompt(&chat);
+        let prompt = self.model_type.create_chat_prompt(&chat, ChatRole::Model);
 
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity
@@ -327,7 +435,7 @@ choose things from a list based on their given criteria.");
             }
 
             // Raise the temperature and try again
-            temperature += 0.2;
+            temperature += 0.1;
         }
 
         // Return the response
@@ -365,10 +473,10 @@ impl ModelType {
     }
 
     /// Creates a chat prompt meant for this type of Phi model.
-    pub fn create_chat_prompt(&self, chat: &Chat) -> String {
+    pub fn create_chat_prompt(&self, chat: &Chat, sender: ChatRole) -> String {
         let mut prompt = match self {
             // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat),
-            ModelType::Phi15Instruct => Self::create_phi15_instruct_chat_prompt(chat),
+            ModelType::Phi15Instruct => Self::create_phi15_instruct_chat_prompt(chat, sender),
         };
 
         // Append the response prefix
@@ -379,24 +487,31 @@ impl ModelType {
         prompt
     }
 
-    fn create_phi15_instruct_chat_prompt(chat: &Chat) -> String {
+    fn create_phi15_instruct_chat_prompt(chat: &Chat, sender: ChatRole) -> String {
         let mut prompt = String::new();
 
         // Add the system prompt to the system section
-        prompt.push_str(&format!(
-            "<|im_start|>system\n{}\n",
-            chat.system_prompt(),
-        ));
+        prompt.push_str(&format!("<|im_start|>system\n{}\n", chat.system_prompt(),));
 
-        // Also add extra data as key-value pairs for the model to understand
+        // Add the long term memory to the system section
+        if let Some(long_term_memory) = chat.long_term_memory() {
+            prompt.push_str(long_term_memory);
+            prompt.push('\n');
+        }
+
+        // Add extra data as key-value pairs for the model to understand
         if let Some(extra_data) = chat.extra_data() {
             prompt.push_str(&format!(
                 "What you know: {{\n{}\n}}\n",
-                extra_data.iter().map(|(k, v)| format!("\"{}\" = {}", k, v)).collect::<Vec<_>>().join("\n")
+                extra_data
+                    .iter()
+                    .map(|(k, v)| format!("\"{}\" = {}", k, v))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ));
         }
 
-        // Finally end the system prompt
+        // Finally end the system section
         prompt.push_str("<|im_end|>\n");
 
         // Add each message in the chat to the prompt as a new section
@@ -418,9 +533,23 @@ impl ModelType {
         }
 
         // Start the final assistant section (response)
-        prompt.push_str("<|im_start|>assistant\n");
+        prompt.push_str("<|im_start|>");
+        prompt.push_str(match sender {
+            ChatRole::User => "user",
+            ChatRole::Model => "assistant",
+        });
+        prompt.push_str("\n");
 
         prompt
+    }
+
+    pub fn chat_role_name(&self, role: ChatRole) -> &'static str {
+        match self {
+            ModelType::Phi15Instruct => match role {
+                ChatRole::Model => "Assistant",
+                ChatRole::User => "User",
+            },
+        }
     }
 }
 
