@@ -58,18 +58,35 @@ impl Chat {
     }
 
     /// Infer a new chat message using the model and push it to the chat.
-    pub fn infer_message(&mut self, sender: ChatRole, model: &Model, seed: u64, temp: Option<f64>, repeat_penalty: f32, repeat_last_n: usize, ignore_end_sequences: bool) {
-        let end_sequences: &[&str] = if ignore_end_sequences { &[] } else { &["\n"] };
-        let response = model.chat(
-            self,
-            sender.clone(),
-            seed,
-            temp,
-            None,
-            repeat_penalty,
-            repeat_last_n
-        ).complete(end_sequences)
-        .0;
+    pub fn infer_message(
+        &mut self,
+        sender: ChatRole,
+        model: &Model,
+        seed: u64,
+        temp: Option<f64>,
+        repeat_penalty: f32,
+        repeat_last_n: usize,
+        ignore_end_sequences: bool,
+    ) {
+        // If token count exceeds the maximum, compress the chat first
+        if self.estimate_total_tokens() > Self::MAX_TOTAL_TOKENS {
+            self.compress(model);
+        }
+
+        let end_sequences: &[&str] = if ignore_end_sequences { &[] } else { &["\n\n"] };
+        let response = model
+            .chat(
+                self,
+                sender.clone(),
+                seed,
+                temp,
+                None,
+                repeat_penalty,
+                repeat_last_n,
+            )
+            .complete(end_sequences)
+            .0;
+
         self.add_message(sender, response);
     }
 
@@ -157,10 +174,14 @@ impl Chat {
 
     /// Compresses the chat by removing old messages and summarizing them with the long term memory.
     /// Then, replace the long term memory with this summary.
-    pub fn compress(&mut self, model:&Model) {
-        // Gather long term memory and all messages up to the last 2 as chat history
+    pub fn compress(&mut self, model: &Model) {
+        // Gather long term memory and all messages up to the last COMPRESS_RETAIN_MESSAGES as chat history
         let mut history = self.long_term_memory().unwrap_or("").to_string();
-        for message in &self.messages[..self.messages.len().saturating_sub(Self::COMPRESS_RETAIN_MESSAGES)] {
+        for message in &self.messages[..self
+            .messages
+            .len()
+            .saturating_sub(Self::COMPRESS_RETAIN_MESSAGES)]
+        {
             history.push_str("\n");
             history.push_str(
                 format!(
@@ -173,16 +194,35 @@ impl Chat {
         }
 
         println!("Beginning chat compression...");
-        println!("Chat history (-{} messages) before compression: {}", Self::COMPRESS_RETAIN_MESSAGES, history);
+        println!(
+            "Chat history (-{} messages) before compression: {}",
+            Self::COMPRESS_RETAIN_MESSAGES,
+            history
+        );
 
         // Summarize the chat history using the model
-        let summary = model.summarize_to_tokens(&history, Self::MAX_LONG_TERM_MEMORY, true, 0, 0.0, 2);
+        let summary =
+            model.summarize_to_tokens(&history, Self::MAX_LONG_TERM_MEMORY, true, 0, 0.0, 2);
 
-        println!("Chat history after compression: {}", summary);
+        // Set the long term memory to the summarized chat history
+        self.long_term_memory = Some(summary.clone());
 
-        self.long_term_memory = Some(summary);
+        // Clear the messages up to the last COMPRESS_RETAIN_MESSAGES
+        let retain_start = self
+            .messages
+            .len()
+            .saturating_sub(Self::COMPRESS_RETAIN_MESSAGES);
+        self.messages.drain(..retain_start);
 
-        self.messages.clear();
+        println!(
+            "Chat history after compression:\n{}\n{}",
+            summary,
+            self.messages()
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
     }
 }
 

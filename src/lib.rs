@@ -5,30 +5,39 @@ pub mod token_string;
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use crate::prelude::*;
 
     #[test]
     fn chat() {
-        const SEED: u64 = 546457;
-        const TEMP: f64 = 0.6;
-        const CONVERSATION_TURNS: usize = 3;
+        const SEED: u64 = 477474;
+        const TEMP: f64 = 0.5;
+        const CONVERSATION_TURNS: usize = 14;
 
         // Create the model
         let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
 
         // Start a chat
         let mut chat = Chat::new();
-        chat.set_system_prompt("You are a talkative and entertaining person to talk to.");
+        chat.set_system_prompt("You are a helpful assistant and friendly person who has a great imagination, \
+        an open mind, and is fun to talk to. Talk to the user in a friendly and engaging manner.");
+
+        println!("System: {}", chat.system_prompt());
 
         // Infer a conversation
-        for _ in 0 .. CONVERSATION_TURNS {
-            // Generate a user message
-            chat.infer_message(ChatRole::User, &model, SEED, Some(TEMP), 1.1, 64, false);
-            println!("\n{}", chat.last_message().unwrap());
+        for turn in 0..CONVERSATION_TURNS {
+            // Get the user message from the console input
+            let mut input = String::new();
+            print!("User: ");
+            std::io::stdout().flush().unwrap();
+            std::io::stdin().read_line(&mut input).unwrap();
+            let input = input.trim().to_string();
+            chat.add_message(ChatRole::User, input);
 
-            // Generate a model message
-            chat.infer_message(ChatRole::Model, &model, SEED, Some(TEMP), 1.1, 64, false);
-            println!("\n{}", chat.last_message().unwrap());
+            // Infer a model response
+            chat.infer_message(ChatRole::Model, &model, SEED.wrapping_add(turn as u64), Some(TEMP), 1.0, 0, false);
+            println!("\n{}\n", chat.last_message().unwrap());
         }
     }
 

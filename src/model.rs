@@ -255,10 +255,15 @@ impl Model {
         );
 
         // Add a user message asking the model to summarize the text
-        chat.add_message(ChatRole::User, format!("Please summarize the following text:\n{}", text));
+        chat.add_message(
+            ChatRole::User,
+            format!("Please summarize the following text:\n{}", text),
+        );
 
         // Set the response prefix to avoid extra fluff
-        chat.set_response_prefix(Some("Certainly, here is my summary of the text you provided:\n\"".to_string()));
+        chat.set_response_prefix(Some(
+            "Certainly, here is my summary of the text you provided:\n\"".to_string(),
+        ));
 
         self.chat(&chat, ChatRole::Model, seed, temp, None, 1.0, 0)
             .complete(&["\"", "\n"])
@@ -268,7 +273,14 @@ impl Model {
     /// Summarize a string while forcing it into the given token count.
     /// If summarizing to this size fails, attempts for 'attempts' times.
     /// On a total failure, returns `None`.
-    pub fn try_summarize_to_tokens(&self, text: impl AsRef<str>, token_count: usize, seed: u64, mut temp: f64, attempts: usize) -> Option<String> {
+    pub fn try_summarize_to_tokens(
+        &self,
+        text: impl AsRef<str>,
+        token_count: usize,
+        seed: u64,
+        mut temp: f64,
+        attempts: usize,
+    ) -> Option<String> {
         let text = text.as_ref();
 
         // Look for a summary for `attempts` times
@@ -280,7 +292,7 @@ impl Model {
             if summary_tokens <= token_count {
                 return Some(summary);
             }
-            
+
             temp += 0.1;
         }
 
@@ -290,7 +302,15 @@ impl Model {
     /// Summarize a string while forcing it into the given token count.
     /// If summarizing to this size fails, attempts for 'attempts' times.
     /// On a total failure, forcefully truncates the summary to the given token count.
-    pub fn summarize_to_tokens(&self, text: impl AsRef<str>, token_count: usize, truncate_towards_end: bool, seed: u64, mut temp: f64, attempts: usize) -> String {
+    pub fn summarize_to_tokens(
+        &self,
+        text: impl AsRef<str>,
+        token_count: usize,
+        truncate_towards_end: bool,
+        seed: u64,
+        mut temp: f64,
+        attempts: usize,
+    ) -> String {
         let text = text.as_ref();
 
         // Look for a summary for `attempts` times
@@ -311,15 +331,13 @@ impl Model {
         let mut tokens = self.tokenize_str(&summary);
         if truncate_towards_end {
             tokens.truncate_rev(token_count);
-        }
-        else {
+        } else {
             tokens.truncate(token_count);
         }
 
         let truncated = self.tokenize(tokens);
         truncated.to_string()
     }
-
 
     /// Expand a string with more detail using the model.
     pub fn expand(&self, text: impl AsRef<str>, seed: u64, temp: Option<f64>) -> String {
@@ -332,10 +350,18 @@ impl Model {
         );
 
         // Add a user message asking the model to expand the text
-        chat.add_message(ChatRole::User, format!("Please expand the following text with more detail:\n{}", text));
+        chat.add_message(
+            ChatRole::User,
+            format!(
+                "Please expand the following text with more detail:\n{}",
+                text
+            ),
+        );
 
         // Set the response prefix to avoid extra fluff
-        chat.set_response_prefix(Some("Certainly, here is the expanded version of the text you provided:\n\"".to_string()));
+        chat.set_response_prefix(Some(
+            "Certainly, here is the expanded version of the text you provided:\n\"".to_string(),
+        ));
 
         self.chat(&chat, ChatRole::Model, seed, temp, None, 1.1, 64)
             .complete(&["\"", "\n"])
@@ -661,20 +687,21 @@ impl InferIter {
         {
             let token_str = self.tokens.model.detokenize(&[token]);
 
-            // Exit early at the first stop sequence from end_sequences encountered in token_str, cutting off the response at that point
+            response.push_str(&token_str);
+
+            // Exit early at the first stop sequence from end_sequences encountered in response, truncating.
+            // Only search in the last END_SEQUENCE_SEARCH_WINDOW characters of the response
             let found_stop_sequence_position = end_sequences
                 .iter()
                 .enumerate()
-                .filter_map(|(idx, &seq)| token_str.find(seq).map(|pos| (idx, pos)))
+                .filter_map(|(idx, &seq)| response.find(seq).map(|pos| (idx, pos)))
                 .min_by_key(|&(_, pos)| pos);
 
             if let Some((idx, pos)) = found_stop_sequence_position {
-                response.push_str(&token_str[..pos]);
+                response.truncate(pos);
                 self.reached_eos = true;
                 return (response, Some(end_sequences[idx]));
             }
-
-            response.push_str(&token_str);
         }
 
         self.reached_eos = true;
