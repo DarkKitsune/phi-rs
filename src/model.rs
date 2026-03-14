@@ -178,6 +178,21 @@ impl Model {
             .unwrap()
     }
 
+    /// Predict the text which follows the given prompt.
+    pub fn predict_next(
+        &self,
+        prompt: impl IntoTokenString,
+        seed: u64,
+        temp: Option<f64>,
+        top_p: Option<f64>,
+        repeat_penalty: f32,
+        repeat_last_n: usize,
+    ) -> InferIter {
+        self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
+            .unwrap()
+    }
+
+
     /// Generate a string similar to the given example strings.
     pub fn generate_similar(
         &self,

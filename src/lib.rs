@@ -7,12 +7,14 @@ pub mod token_string;
 mod tests {
     use std::io::Write;
 
+    use ggmath::random::ToSeed;
+
     use crate::prelude::*;
 
     #[test]
     fn chat() {
         const SEED: u64 = 477474;
-        const TEMP: f64 = 0.5;
+        const TEMP: f64 = 0.55;
         const CONVERSATION_TURNS: usize = 14;
 
         // Create the model
@@ -139,5 +141,51 @@ mod tests {
         // Summarize the text
         let summary = model.summarize_to_tokens(&expanded, 50, false, SEED, 0.1, 5);
         println!("Summary: {}", summary);
+    }
+
+    #[test]
+    fn predict_next() {
+        const SEED: u64 = 13579;
+
+        // Create the model
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+
+        let mut text = "The quick brown fox jumps over the lazy dog. The slow brown cow, however, is".to_string();
+
+        // Predict the rest of the text
+        text.push_str(&model.predict_next(&text, SEED, Some(0.6), None, 1.0, 64).complete(&["\n"]).0);
+        println!("Completed text: {}", text);
+    }
+
+    #[test]
+    fn predict_next_chat() {
+        const SEED: u64 = 13579;
+        const TEMP: f64 = 0.55;
+        const CHARACTER_NAMES: &[&str] = &["Alice", "Bob", "Charlie", "Diana"];
+        const CONVERSATION_TURNS: usize = 7;
+
+        // Create the model
+        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+
+        // Initialize the string that serves as the chat history
+        let mut chat = format!(
+            "The scene opens on {} standing in the middle of a forest. The group have encountered a mysterious creature.",
+            CHARACTER_NAMES.join(", ")
+        );
+
+        // Simulate a conversation
+        for turn in 0..(CONVERSATION_TURNS as u64) {
+            // Decide which character is speaking this turn
+            let speaking_character = CHARACTER_NAMES[(SEED.wrapping_add(turn).into_random::<u64>() as usize) % CHARACTER_NAMES.len()];
+
+            // Start the character's dialogue
+            chat.push_str(&format!("\n{}: \"", speaking_character));
+
+            // Generate the character's dialogue by predicting the next part of the conversation
+            let response = model.predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.0, 64);
+            chat.push_str(&format!("{}\"", response.complete(&["\"", "\n"]).0));
+        }
+
+        println!("Final chat:\n{}", chat);
     }
 }
