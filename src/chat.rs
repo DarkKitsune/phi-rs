@@ -68,6 +68,7 @@ impl Chat {
         &mut self,
         sender: ChatRole,
         model: &Model,
+        think: bool,
         seed: u64,
         temp: Option<f64>,
         repeat_penalty: f32,
@@ -84,6 +85,7 @@ impl Chat {
             .chat(
                 self,
                 sender.clone(),
+                think,
                 seed,
                 temp,
                 None,

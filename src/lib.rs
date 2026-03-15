@@ -40,7 +40,7 @@ mod tests {
             chat.add_message(ChatRole::User, input);
 
             // Infer a model response
-            chat.infer_message(ChatRole::Model, &model, SEED.wrapping_add(turn as u64), Some(TEMP), 1.0, 0, false);
+            chat.infer_message(ChatRole::Model, &model, false, SEED.wrapping_add(turn as u64), Some(TEMP), 1.0, 0, false);
             println!("\n{}\n", chat.last_message().unwrap());
         }
     }
@@ -152,7 +152,7 @@ mod tests {
         const TEMP: f64 = 0.7;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         let mut text = "The quick brown fox jumps over the lazy dog. The slow brown cow, however, is".to_string();
 
@@ -169,7 +169,7 @@ mod tests {
         const CONVERSATION_TURNS: usize = 7;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         // Initialize the string that serves as the chat history
         let mut chat = format!(
@@ -196,14 +196,37 @@ mod tests {
     #[test]
     fn generate_story() {
         const SEED: u64 = 6575;
-        const TEMP: f64 = 0.57;
+        const TEMP: f64 = 0.7;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         // Generate a story
         let mut story = "There was once".to_string();
         story.push_str(&model.predict_next("There was once", SEED, Some(TEMP), None, 1.1, 64).complete(&["\n"]).0);
         println!("Generated story:\n{}", story);
+    }
+
+    #[test]
+    fn thinking() {
+        const SEED: u64 = 13579;
+        const TEMP: f64 = 0.7;
+
+        // Create the model and chat
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let mut chat = Chat::new();
+        chat.add_message(ChatRole::User, "If a train leaves Station A at 60 mph and another leaves Station B 100 miles away at 40 mph towards each other, when do they meet?");
+
+        // Ask the model to think about the problem
+        let result = model.chat(&chat, ChatRole::Model, true, SEED, Some(TEMP), None, 1.0, 0)
+        .complete(&[])
+        .0;
+
+        // Parse everything before and after the </think> closing tag
+        let parts: Vec<&str> = result.split("</think>").collect();
+        let thoughts = parts.get(0).unwrap_or(&"").trim();
+        let result = parts.get(1).unwrap_or(&"").trim();
+
+        println!("\nThoughts:\n{}\nResult:\n{}\n", thoughts, result);
     }
 }

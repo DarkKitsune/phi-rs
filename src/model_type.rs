@@ -18,6 +18,21 @@ pub enum ModelType {
 }
 
 impl ModelType {
+    pub fn can_chat(&self) -> bool {
+        match self {
+            ModelType::Phi15Instruct
+            | ModelType::Qwen25Instruct => true,
+            _ => false,
+        }
+    }
+
+    pub fn can_think(&self) -> bool {
+        match self {
+            ModelType::Qwen3 | ModelType::Qwen25Instruct => true,
+            _ => false,
+        }
+    }
+
     pub fn model_repo(&self) -> &'static str {
         match self {
             // ModelType::PhiHermes => "lmz/candle-quantized-phi",

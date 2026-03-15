@@ -124,13 +124,21 @@ impl Model {
     /// Returns an error if the prompt is empty.
     pub fn infer_iter(
         &self,
-        prompt: impl IntoTokenString,
+        prompt: impl Display,
+        think: bool,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> Result<InferIter> {
+        let mut prompt = prompt.to_string();
+        
+        // If we need to think then add the <think> tag to the prompt
+        if self.model_type.can_think() && think{
+            prompt.push_str("<think>\n\n");
+        }
+
         // Add the model seed to the seed provided
         let seed = seed.wrapping_add(self.seed);
 
@@ -170,30 +178,36 @@ impl Model {
         &self,
         chat: &Chat,
         sender: ChatRole,
+        think: bool,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> InferIter {
+        // Panic if the model type does not support chat
+        if !self.model_type.can_chat() {
+            panic!("Model type {:?} does not support chat", self.model_type);
+        }
+
         // Generate the basic chat prompt
         let prompt = self.model_type.create_chat_prompt(chat, sender);
 
-        self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
+        self.infer_iter(prompt, think, seed, temp, top_p, repeat_penalty, repeat_last_n)
             .unwrap()
     }
 
     /// Predict the text which follows the given prompt.
     pub fn predict_next(
         &self,
-        prompt: impl IntoTokenString,
+        prompt: impl Display,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> InferIter {
-        self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
+        self.infer_iter(prompt, false, seed, temp, top_p, repeat_penalty, repeat_last_n)
             .unwrap()
     }
 
@@ -259,7 +273,7 @@ impl Model {
         // Set the response prefix to "[" to encourage generating a "]"
         chat.set_response_prefix(Some("Here's an example like you described: [".to_string()));
 
-        self.chat(&chat, ChatRole::Model, seed, temp, None, 1.1, 128)
+        self.chat(&chat, ChatRole::Model, false, seed, temp, None, 1.1, 128)
             .complete(&["]", "\n"])
             .0
     }
@@ -285,7 +299,7 @@ impl Model {
             "Certainly, here is my summary of the text you provided:\n\"".to_string(),
         ));
 
-        self.chat(&chat, ChatRole::Model, seed, temp, None, 1.0, 0)
+        self.chat(&chat, ChatRole::Model, false, seed, temp, None, 1.0, 0)
             .complete(&["\"", "\n"])
             .0
     }
@@ -383,7 +397,7 @@ impl Model {
             "Here is the expanded text: \"".to_string(),
         ));
 
-        self.chat(&chat, ChatRole::Model, seed, temp, None, 1.1, 64)
+        self.chat(&chat, ChatRole::Model, false, seed, temp, None, 1.1, 64)
             .complete(&["\"", "\n"])
             .0
     }
@@ -452,7 +466,7 @@ impl Model {
 
             // Begin inference
             let mut inference = self
-                .infer_iter(prompt.clone(), seed, Some(temperature), None, 1.0, 0)
+                .infer_iter(prompt.clone(), false, seed, Some(temperature), None, 1.0, 0)
                 .unwrap();
 
             // Infer while possible_items > 1
