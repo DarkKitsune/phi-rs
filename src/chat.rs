@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::model::{InferValue, Model};
+use crate::{inference::InferValue, model::Model};
 
 /// Represents a chat between user and model.
 #[derive(Clone, Debug)]
@@ -26,7 +26,13 @@ impl Chat {
     /// system prompt, long term memory and extra data.
     const MAX_TOTAL_TOKENS: usize = 2048;
     /// Maximum number of tokens for the long term memory.
-    const MAX_LONG_TERM_MEMORY: usize = 600;
+    const MAX_LONG_TERM_MEMORY: usize = 768;
+    /// Token count threshold for compressing the chat.
+    const COMPRESS_THRESHOLD: usize = const {
+        Self::MAX_TOTAL_TOKENS
+            .checked_sub(Self::MAX_LONG_TERM_MEMORY)
+            .expect("MAX_TOTAL_TOKENS must be greater than MAX_LONG_TERM_MEMORY")
+    };
     /// The amount of messages to retain when compressing.
     const COMPRESS_RETAIN_MESSAGES: usize = 2;
 
@@ -68,8 +74,8 @@ impl Chat {
         repeat_last_n: usize,
         ignore_end_sequences: bool,
     ) {
-        // If token count exceeds the maximum, compress the chat first
-        if self.estimate_total_tokens() > Self::MAX_TOTAL_TOKENS {
+        // If token count exceeds the compress threshold, compress the chat first
+        if self.estimate_total_tokens() > Self::COMPRESS_THRESHOLD {
             self.compress(model);
         }
 
@@ -205,7 +211,7 @@ impl Chat {
             model.summarize_to_tokens(&history, Self::MAX_LONG_TERM_MEMORY, true, 0, 0.0, 2);
 
         // Set the long term memory to the summarized chat history
-        self.long_term_memory = Some(summary.clone());
+        self.long_term_memory = Some(summary);
 
         // Clear the messages up to the last COMPRESS_RETAIN_MESSAGES
         let retain_start = self
@@ -216,7 +222,9 @@ impl Chat {
 
         println!(
             "Chat history after compression:\n{}\n{}",
-            summary,
+            self.long_term_memory()
+                .unwrap()
+                .to_string(),
             self.messages()
                 .iter()
                 .map(|m| m.to_string())

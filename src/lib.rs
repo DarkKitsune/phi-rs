@@ -1,5 +1,7 @@
 pub mod chat;
 pub mod model;
+pub mod model_type;
+pub mod inference;
 pub mod prelude;
 pub mod token_string;
 
@@ -18,7 +20,7 @@ mod tests {
         const CONVERSATION_TURNS: usize = 14;
 
         // Create the model
-        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         // Start a chat
         let mut chat = Chat::new();
@@ -49,14 +51,14 @@ mod tests {
         const ATTEMPTS: usize = 7;
 
         // Create the model
-        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
 
         // Present choices to the model
         let item = model.try_choose_item(
             "a weapon for a knight",
             ["horse", "sword", "potion", "compass", "bow", "shield"],
             SEED,
-            0.2,
+            0.0,
             ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
@@ -65,7 +67,7 @@ mod tests {
             "a soft toy",
             ["snacks", "ball", "coloring book", "stuffed animal", "book"],
             SEED,
-            0.2,
+            0.0,
             ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
@@ -83,7 +85,7 @@ mod tests {
                 "pineapple",
             ],
             SEED,
-            0.2,
+            0.0,
             ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
@@ -105,11 +107,11 @@ mod tests {
         ];
 
         // Create the model
-        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
 
         // Start dog sentences
         println!(
-            "Generating {}  fox jumping over a dog sentences:",
+            "Generating {} fox jumping over a dog sentences:",
             NUM_TO_GENERATE
         );
 
@@ -128,44 +130,46 @@ mod tests {
     #[test]
     fn expand_and_summarize() {
         const SEED: u64 = 13579;
+        const TEMP: f64 = 0.0;
 
         // Create the model
-        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
 
-        let text = "The quick brown fox jumps over the lazy dog. The cow jumps over the moon.";
+        let text = "Sally told me she saw that dang fox jump over the poor lazy dog again. A travesty, really.";
 
         // Expand the text
-        let expanded = model.expand(text, SEED, Some(0.6));
-        println!("Expanded text: {}", expanded);
+        let expanded = model.expand(model.expand(text, SEED, Some(TEMP)), SEED, Some(TEMP));
+        println!("\nExpanded text: {}", expanded);
 
         // Summarize the text
-        let summary = model.summarize_to_tokens(&expanded, 50, false, SEED, 0.1, 5);
-        println!("Summary: {}", summary);
+        let summary = model.summarize_to_tokens(&expanded, 60, false, SEED, TEMP, 5);
+        println!("\nSummary: {}", summary);
     }
 
     #[test]
     fn predict_next() {
         const SEED: u64 = 13579;
+        const TEMP: f64 = 0.7;
 
         // Create the model
-        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
 
         let mut text = "The quick brown fox jumps over the lazy dog. The slow brown cow, however, is".to_string();
 
         // Predict the rest of the text
-        text.push_str(&model.predict_next(&text, SEED, Some(0.6), None, 1.0, 64).complete(&["\n"]).0);
+        text.push_str(&model.predict_next(&text, SEED, Some(TEMP), None, 1.0, 0).complete(&["\n"]).0);
         println!("Completed text: {}", text);
     }
 
     #[test]
     fn predict_next_chat() {
         const SEED: u64 = 13579;
-        const TEMP: f64 = 0.55;
+        const TEMP: f64 = 0.7;
         const CHARACTER_NAMES: &[&str] = &["Alice", "Bob", "Charlie", "Diana"];
         const CONVERSATION_TURNS: usize = 7;
 
         // Create the model
-        let model = Model::new(ModelType::Phi15Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
 
         // Initialize the string that serves as the chat history
         let mut chat = format!(
@@ -182,10 +186,24 @@ mod tests {
             chat.push_str(&format!("\n{}: \"", speaking_character));
 
             // Generate the character's dialogue by predicting the next part of the conversation
-            let response = model.predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.0, 64);
-            chat.push_str(&format!("{}\"", response.complete(&["\"", "\n"]).0));
+            let response = model.predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.0, 0).complete(&["\"", "\n"]).0;
+            chat.push_str(&format!("{}\"", response));
         }
 
         println!("Final chat:\n{}", chat);
+    }
+
+    #[test]
+    fn generate_story() {
+        const SEED: u64 = 6575;
+        const TEMP: f64 = 0.57;
+
+        // Create the model
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+
+        // Generate a story
+        let mut story = "There was once".to_string();
+        story.push_str(&model.predict_next("There was once", SEED, Some(TEMP), None, 1.1, 64).complete(&["\n"]).0);
+        println!("Generated story:\n{}", story);
     }
 }

@@ -1,10 +1,11 @@
 use std::fmt::{Debug, Display};
-use std::str::FromStr;
 
 use anyhow::{Error as E, Result};
 
 //use candle_transformers::models::mixformer::{Config, MixFormerSequentialForCausalLM as MixFormer};
 use candle_transformers::models::phi::{Config as PhiConfig, Model as Phi};
+use candle_transformers::models::qwen2::{Config as Qwen2Config, ModelForCausalLM as Qwen2};
+use candle_transformers::models::qwen3::{Config as Qwen3Config, ModelForCausalLM as Qwen3};
 
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -14,6 +15,8 @@ use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
 use crate::chat::{Chat, ChatRole};
+use crate::inference::InferIter;
+use crate::model_type::ModelType;
 use crate::token_string::{IntoTokenString, TokenString};
 
 pub const MAX_TOKENS: usize = 2048;
@@ -21,7 +24,7 @@ pub const MAX_TOKENS: usize = 2048;
 #[derive(Clone)]
 pub struct Model {
     model_type: ModelType,
-    config: PhiConfig,
+    config: DynConfig,
     vb: VarBuilder<'static>,
     tokenizer: Tokenizer,
     vocab_size: usize,
@@ -37,18 +40,19 @@ impl Model {
             Device::Cpu
         };
         let api = Api::new()?;
-        let repo = api.model(model_type.repo_name().to_string());
-        let tokenizer_filename = repo.get(model_type.tokenizer_json_name())?;
-        let model_filename = repo.get(model_type.model_name())?;
+        let tokenizer_repo = api.model(model_type.tokenizer_repo().to_string());
+        let model_repo = api.model(model_type.model_repo().to_string());
 
         // Create model config
-        let config_filename = repo.get("config.json")?;
-        let config = std::fs::read_to_string(config_filename)?;
-        let config = serde_json::from_str(&config)?;
+        let config = model_type.create_config(&model_repo);
+
+        // Get the tokenizer and model files
+        let tokenizer_filename = tokenizer_repo.get(model_type.tokenizer_json_name())?;
+        let model_filenames = model_type.model_names().iter().map(|name| model_repo.get(name)).collect::<Result<Vec<_>, _>>()?;
 
         // Create VarBuilder
         let vb =
-            unsafe { VarBuilder::from_mmaped_safetensors(&[model_filename], DType::F32, &device)? };
+            unsafe { VarBuilder::from_mmaped_safetensors(&model_filenames, DType::F32, &device)? };
 
         // Create tokenizer
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
@@ -139,16 +143,17 @@ impl Model {
         }
 
         // Create pipeline
-        let pipeline = Phi::new(&self.config, self.vb.clone()).unwrap();
+        let pipeline = self.model_type.create_pipeline(&self.config, self.vb.clone());
 
         // Create logits processor
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
 
         // Get the end of text token
-        let eos_token = self.get_token("<|endoftext|>").unwrap();
+        let eos_token = self.get_token("<|im_end|>").or_else(|_| self.get_token("<|endoftext|>")).unwrap();
 
         // Create the iterator
         Ok(InferIter::new(
+            self.model_type.clone(),
             self.device.clone(),
             prompt,
             self.vocab_size,
@@ -252,7 +257,7 @@ impl Model {
         }
 
         // Set the response prefix to "[" to encourage generating a "]"
-        chat.set_response_prefix(Some("[".to_string()));
+        chat.set_response_prefix(Some("Here's an example like you described: [".to_string()));
 
         self.chat(&chat, ChatRole::Model, seed, temp, None, 1.1, 128)
             .complete(&["]", "\n"])
@@ -361,21 +366,21 @@ impl Model {
 
         // Set the system prompt to tell the model what its role should be
         chat.set_system_prompt(
-            "You are an assistant whose job is to expand text provided by the user with more detail. Wrap your summary in double quotes.",
+            "You are an assistant whose job is to expand text provided by the user with more detail.",
         );
 
         // Add a user message asking the model to expand the text
         chat.add_message(
             ChatRole::User,
             format!(
-                "Please expand the following text with more detail:\n{}",
+                "Please expand the following text with more detail: \"{}\"",
                 text
             ),
         );
 
         // Set the response prefix to avoid extra fluff
         chat.set_response_prefix(Some(
-            "Certainly, here is the expanded version of the text you provided:\n\"".to_string(),
+            "Here is the expanded text: \"".to_string(),
         ));
 
         self.chat(&chat, ChatRole::Model, seed, temp, None, 1.1, 64)
@@ -484,579 +489,51 @@ impl Model {
     }
 }
 
-/// Represents the type of Phi model to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ModelType {
-    // PhiHermes,
-    Phi15Instruct,
+/// Contains a pipeline, could be one of multiple types.
+pub enum Pipeline {
+    Phi(Phi),
+    Qwen2(Qwen2),
+    Qwen3(Qwen3),
 }
 
-impl ModelType {
-    pub fn repo_name(&self) -> &'static str {
+impl Pipeline {
+    pub fn forward(&mut self, xs: &Tensor, start_pos: usize) -> Tensor {
         match self {
-            // ModelType::PhiHermes => "lmz/candle-quantized-phi",
-            ModelType::Phi15Instruct => "rasyosef/Phi-1_5-Instruct-v0.1",
+            Pipeline::Phi(phi) => phi.forward(xs).unwrap(),
+            Pipeline::Qwen2(qwen2) => qwen2.forward(xs, start_pos).unwrap(),
+            Pipeline::Qwen3(qwen3) => qwen3.forward(xs, start_pos).unwrap(),
         }
     }
+}
 
-    pub fn tokenizer_json_name(&self) -> &'static str {
+/// Contains a model config
+#[derive(Debug, Clone)]
+pub enum DynConfig {
+    Phi(PhiConfig),
+    Qwen2(Qwen2Config),
+    Qwen3(Qwen3Config),
+}
+
+impl DynConfig {
+    pub fn as_phi(&self) -> Option<&PhiConfig> {
         match self {
-            // ModelType::PhiHermes => "tokenizer-puffin-phi-v2.json",
-            ModelType::Phi15Instruct => "tokenizer.json",
+            DynConfig::Phi(config) => Some(config),
+            _ => None,
         }
     }
 
-    pub fn model_name(&self) -> &'static str {
+    pub fn as_qwen2(&self) -> Option<&Qwen2Config> {
         match self {
-            // ModelType::PhiHermes => "model-phi-hermes-1_3B.safetensors",
-            ModelType::Phi15Instruct => "model.safetensors",
+            DynConfig::Qwen2(config) => Some(config),
+            _ => None,
         }
     }
 
-    /// Creates a chat prompt meant for this type of Phi model.
-    pub fn create_chat_prompt(&self, chat: &Chat, sender: ChatRole) -> String {
-        let mut prompt = match self {
-            // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat),
-            ModelType::Phi15Instruct => Self::create_phi15_instruct_chat_prompt(chat, sender),
-        };
-
-        // Append the response prefix
-        if let Some(prefix) = chat.response_prefix() {
-            prompt.push_str(prefix);
-        }
-
-        prompt
-    }
-
-    fn create_phi15_instruct_chat_prompt(chat: &Chat, sender: ChatRole) -> String {
-        let mut prompt = String::new();
-
-        // Add the system prompt to the system section
-        prompt.push_str(&format!("<|im_start|>system\n{}\n", chat.system_prompt(),));
-
-        // Add the long term memory to the system section
-        if let Some(long_term_memory) = chat.long_term_memory() {
-            prompt.push_str(long_term_memory);
-            prompt.push('\n');
-        }
-
-        // Add extra data as key-value pairs for the model to understand
-        if let Some(extra_data) = chat.extra_data() {
-            prompt.push_str(&format!(
-                "What you know: {{\n{}\n}}\n",
-                extra_data
-                    .iter()
-                    .map(|(k, v)| format!("\"{}\" = {}", k, v))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            ));
-        }
-
-        // Finally end the system section
-        prompt.push_str("<|im_end|>\n");
-
-        // Add each message in the chat to the prompt as a new section
-        for message in chat {
-            match message.sender() {
-                ChatRole::User => {
-                    prompt.push_str(&format!(
-                        "<|im_start|>user\n{}\n<|im_end|>\n",
-                        message.content()
-                    ));
-                }
-                ChatRole::Model => {
-                    prompt.push_str(&format!(
-                        "<|im_start|>assistant\n{}\n<|im_end|>\n",
-                        message.content()
-                    ));
-                }
-            }
-        }
-
-        // Start the final assistant section (response)
-        prompt.push_str("<|im_start|>");
-        prompt.push_str(match sender {
-            ChatRole::User => "user",
-            ChatRole::Model => "assistant",
-        });
-        prompt.push_str("\n");
-
-        prompt
-    }
-
-    pub fn chat_role_name(&self, role: ChatRole) -> &'static str {
+    pub fn as_qwen3(&self) -> Option<&Qwen3Config> {
         match self {
-            ModelType::Phi15Instruct => match role {
-                ChatRole::Model => "Assistant",
-                ChatRole::User => "User",
-            },
-        }
-    }
-}
-
-pub struct InferIter {
-    device: Device,
-    tokens: TokenString,
-    vocab_size: usize,
-    step: usize,
-    pipeline: Phi,
-    logits_processor: LogitsProcessor,
-    repeat_penalty: f32,
-    repeat_last_n: usize,
-    eos_token: u32,
-    reached_eos: bool,
-}
-
-impl InferIter {
-    pub(crate) fn new(
-        device: Device,
-        tokens: TokenString,
-        vocab_size: usize,
-        pipeline: Phi,
-        logits_processor: LogitsProcessor,
-        repeat_penalty: f32,
-        repeat_last_n: usize,
-        eos_token: u32,
-    ) -> Self {
-        Self {
-            device,
-            tokens,
-            vocab_size,
-            step: 0,
-            pipeline,
-            logits_processor,
-            repeat_penalty,
-            repeat_last_n,
-            eos_token,
-            reached_eos: false,
+            DynConfig::Qwen3(config) => Some(config),
+            _ => None,
         }
     }
 
-    pub fn next_token(&mut self) -> Option<u32> {
-        // Exit early if we already got the end of text token
-        if self.reached_eos {
-            return None;
-        }
-
-        // Get the context size for this step
-        let context_size = if self.step > 0 { 1 } else { self.tokens.len() };
-
-        // Get the context
-        let context = self
-            .tokens
-            .get(self.tokens.len().saturating_sub(context_size)..)
-            .unwrap();
-
-        // Create the input tensor containing the context
-        let input = Tensor::new(context, &self.device)
-            .unwrap()
-            .unsqueeze(0)
-            .unwrap();
-
-        // Forward the input through the pipeline
-        let logits = self.pipeline.forward(&input).unwrap();
-
-        // Get the logits
-        let logits = logits.squeeze(0).unwrap().to_dtype(DType::F32).unwrap();
-
-        // Apply the repeat penalty
-        let logits = if self.repeat_penalty == 1.0 || self.repeat_last_n == 0 {
-            logits
-        } else {
-            // Apply the repeat penalty to the last repeat_last_n tokens
-            let start_at = self.tokens.len().saturating_sub(self.repeat_last_n);
-            candle_transformers::utils::apply_repeat_penalty(
-                &logits,
-                self.repeat_penalty,
-                self.tokens.get(start_at..).unwrap(),
-            )
-            .unwrap()
-        };
-
-        // Sample the next token
-        let next_token = self.logits_processor.sample(&logits).unwrap();
-
-        // Increment the step
-        self.step += 1;
-
-        // If the token is not the end of text token, add it to the tokens
-        if next_token != self.eos_token {
-            self.tokens.push_token(next_token);
-        }
-        // Otherwise, set reached_eos to true and return None
-        else {
-            self.reached_eos = true;
-            return None;
-        }
-
-        // Return the next token
-        Some(next_token)
-    }
-
-    /// Run the iterator until completion or until one of `end_sequences` is generated
-    /// and return everything up to that point as a `String`, as well as the end sequence that was reached
-    pub fn complete<'a>(mut self, end_sequences: &'a [&str]) -> (String, Option<&'a str>) {
-        let mut response = String::new();
-        while let Some(token) = self.next_token()
-            && token < self.vocab_size as u32 - 1
-        {
-            let token_str = self.tokens.model.detokenize(&[token]);
-
-            response.push_str(&token_str);
-
-            // Exit early at the first stop sequence from end_sequences encountered in response, truncating.
-            // Only search in the last END_SEQUENCE_SEARCH_WINDOW characters of the response
-            let found_stop_sequence_position = end_sequences
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, &seq)| response.find(seq).map(|pos| (idx, pos)))
-                .min_by_key(|&(_, pos)| pos);
-
-            if let Some((idx, pos)) = found_stop_sequence_position {
-                response.truncate(pos);
-                self.reached_eos = true;
-                return (response, Some(end_sequences[idx]));
-            }
-        }
-
-        self.reached_eos = true;
-
-        (response, None)
-    }
-}
-
-impl Into<String> for InferIter {
-    fn into(self) -> String {
-        self.complete(&[]).0
-    }
-}
-
-#[derive(Clone)]
-pub enum InferValue {
-    String(String),
-    Float(f64),
-    Int(i64),
-}
-
-impl InferValue {
-    /// Convert the `InferValue` to a simple `String`
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::String(s) => s.clone(),
-            Self::Float(f) => f.to_string(),
-            Self::Int(i) => i.to_string(),
-        }
-    }
-
-    /// Parse a `&str` to an `InferValue`
-    pub fn from_str(s: &str) -> Result<Self> {
-        if let Ok(f) = s.parse::<f64>() {
-            Ok(Self::Float(f))
-        } else if let Ok(i) = s.parse::<i64>() {
-            Ok(Self::Int(i))
-        } else {
-            Ok(Self::String(s.to_string().trim_matches('"').to_string()))
-        }
-    }
-
-    /// Write a debug representation of the `InferValue`.
-    /// This is the same as the value would appear in code.
-    pub fn write_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::String(s) => write!(f, "\"{}\"", s),
-            Self::Float(fl) => write!(f, "{}", fl),
-            Self::Int(i) => write!(f, "{}", i),
-        }
-    }
-}
-
-impl FromStr for InferValue {
-    type Err = E;
-
-    fn from_str(s: &str) -> Result<Self> {
-        InferValue::from_str(s)
-    }
-}
-
-impl Display for InferValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
-    }
-}
-
-impl Debug for InferValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.write_debug(f)
-    }
-}
-
-impl From<String> for InferValue {
-    fn from(s: String) -> Self {
-        Self::String(s)
-    }
-}
-
-impl From<&str> for InferValue {
-    fn from(s: &str) -> Self {
-        Self::String(s.to_owned())
-    }
-}
-
-impl From<f64> for InferValue {
-    fn from(f: f64) -> Self {
-        Self::Float(f)
-    }
-}
-
-impl From<i64> for InferValue {
-    fn from(i: i64) -> Self {
-        Self::Int(i)
-    }
-}
-
-impl From<f32> for InferValue {
-    fn from(f: f32) -> Self {
-        Self::Float(f as f64)
-    }
-}
-
-impl From<i32> for InferValue {
-    fn from(i: i32) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl From<u32> for InferValue {
-    fn from(i: u32) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl From<i16> for InferValue {
-    fn from(i: i16) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl From<u16> for InferValue {
-    fn from(i: u16) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl From<i8> for InferValue {
-    fn from(i: i8) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl From<u8> for InferValue {
-    fn from(i: u8) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl From<usize> for InferValue {
-    fn from(i: usize) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl From<isize> for InferValue {
-    fn from(i: isize) -> Self {
-        Self::Int(i as i64)
-    }
-}
-
-impl<T: Into<InferValue> + Clone> From<&T> for InferValue {
-    fn from(value: &T) -> Self {
-        value.clone().into()
-    }
-}
-
-impl Into<String> for InferValue {
-    fn into(self) -> String {
-        match self {
-            InferValue::String(s) => {
-                // Remove surrounding quotes (both ' and ")
-                s.trim_matches(|c| c == '"' || c == '\'').to_string()
-            }
-            InferValue::Float(f) => f.to_string(),
-            InferValue::Int(i) => i.to_string(),
-        }
-    }
-}
-
-impl TryInto<f64> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<f64, Self::Error> {
-        match self {
-            InferValue::Float(f) => Ok(f),
-            InferValue::Int(i) => Ok(i as f64),
-            InferValue::String(s) => s.parse::<f64>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<i64> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<i64, Self::Error> {
-        match self {
-            InferValue::Int(i) => Ok(i),
-            InferValue::Float(f) => Ok(f as i64),
-            InferValue::String(s) => s.parse::<i64>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<u64> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<u64, Self::Error> {
-        match self {
-            InferValue::Int(i) => Ok(i as u64),
-            InferValue::Float(f) => Ok(f as u64),
-            InferValue::String(s) => s.parse::<u64>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<f32> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<f32, Self::Error> {
-        match self {
-            InferValue::Float(f) => Ok(f as f32),
-            InferValue::Int(i) => Ok(i as f32),
-            InferValue::String(s) => s.parse::<f32>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<i32> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<i32, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to i32")),
-            InferValue::Float(f) => Ok(f as i32),
-            InferValue::String(s) => s.parse::<i32>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<u32> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<u32, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to u32")),
-            InferValue::Float(f) => Ok(f as u32),
-            InferValue::String(s) => s.parse::<u32>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<i16> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<i16, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to i16")),
-            InferValue::Float(f) => Ok(f as i16),
-            InferValue::String(s) => s.parse::<i16>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<u16> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<u16, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to u16")),
-            InferValue::Float(f) => Ok(f as u16),
-            InferValue::String(s) => s.parse::<u16>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<i8> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<i8, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to i8")),
-            InferValue::Float(f) => Ok(f as i8),
-            InferValue::String(s) => s.parse::<i8>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<u8> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<u8, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to u8")),
-            InferValue::Float(f) => Ok(f as u8),
-            InferValue::String(s) => s.parse::<u8>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<isize> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<isize, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to isize")),
-            InferValue::Float(f) => Ok(f as isize),
-            InferValue::String(s) => s.parse::<isize>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-impl TryInto<usize> for InferValue {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<usize, Self::Error> {
-        match self {
-            InferValue::Int(i) => i
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Failed to convert i64 to usize")),
-            InferValue::Float(f) => Ok(f as usize),
-            InferValue::String(s) => s.parse::<usize>().map_err(|e| anyhow::anyhow!(e)),
-        }
-    }
-}
-
-#[macro_export]
-macro_rules! data_map {
-    [$($key:expr => $value:expr),*$(,)?] => {
-        {
-            #[allow(unused_mut)]
-            let mut map: std::collections::HashMap<String, $crate::model::InferValue> = std::collections::HashMap::new();
-            $(
-                map.insert($key.to_string(), $crate::model::InferValue::from($value));
-            )*
-            map
-        }
-    };
 }
