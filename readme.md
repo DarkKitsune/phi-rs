@@ -1,1 +1,1 @@
-Experimental text generation project, based on Candle. Runs the teknium/Phi-Hermes-1.3B model locally.
+Rust-based Qwen 2.5+ text engine built on the Candle framework :)
