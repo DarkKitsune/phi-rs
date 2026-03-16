@@ -236,11 +236,11 @@ mod tests {
 
     #[test]
     fn thinking() {
-        const SEED: u64 = 13579;
+        const SEED: u64 = 3463;
         const TEMP: f64 = 0.5;
 
         // Create the model and chat
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
         let mut chat = Chat::new();
         chat.add_message(ChatRole::User, "If a train leaves Station A at 60 mph and another leaves Station B 100 miles away at 40 mph towards each other, when do they meet?");
 
@@ -253,9 +253,9 @@ mod tests {
         // Parse everything before and after the </think> closing tag
         let parts: Vec<&str> = result.split("</think>").collect();
         let thoughts = parts.get(0).unwrap_or(&"").trim();
-        let result = parts.get(1).unwrap_or(&"").trim();
+        let rest = parts.get(1).unwrap_or(&"").trim();
 
-        println!("\nThoughts:\n{}\nResult:\n{}\n", thoughts, result);
+        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts, rest);
     }
 
     #[test]

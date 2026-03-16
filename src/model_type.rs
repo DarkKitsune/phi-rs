@@ -15,16 +15,33 @@ pub enum ModelType {
 }
 
 impl ModelType {
+    /// Returns true if this model type supports chat functionality.
     pub fn can_chat(&self) -> bool {
         match self {
-            ModelType::Qwen25Instruct => true,
+            ModelType::Qwen25Instruct | ModelType::Qwen3 => true,
+        }
+    }
+
+    /// Returns true if this model type supports "thinking" functionality.
+    pub fn can_think(&self) -> bool {
+        match self {
+            ModelType::Qwen25Instruct | ModelType::Qwen3 => true,
+        }
+    }
+
+    /// Returns true if this model requires the think tag to be present regardless.
+    pub fn must_think(&self) -> bool {
+        match self {
+            ModelType::Qwen3 => true,
             _ => false,
         }
     }
 
-    pub fn can_think(&self) -> bool {
+    /// Returns true if this model needs "/think " in the prompt to enable thinking.
+    pub fn use_think_in_prompt(&self) -> bool {
         match self {
-            ModelType::Qwen3 | ModelType::Qwen25Instruct => true,
+            ModelType::Qwen3 => true,
+            _ => false,
         }
     }
 
@@ -105,11 +122,24 @@ impl ModelType {
     }
 
     /// Creates a chat prompt meant for this type of Phi model.
-    pub fn create_chat_prompt(&self, chat: &Chat, sender: ChatRole) -> String {
+    pub fn create_chat_prompt(&self, chat: &Chat, sender: ChatRole, think: bool) -> String {
         let mut prompt = match self {
             // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat),
-            _ => Self::create_chatml_instruct_chat_prompt(chat, sender),
+            _ => Self::create_chatml_instruct_chat_prompt(chat, sender, self.can_think() && think && self.use_think_in_prompt()),
         };
+
+        // Think block
+        if self.can_think() {
+            // If we need to think then start the think block
+            if think || self.must_think() {
+                prompt.push_str("<think>\n");
+            }
+            // The the model requires thinking but we're not thinking this time, close the think block
+            if self.must_think() && !think {
+                prompt.push_str("\n</think>\n");
+            }
+        }
+
 
         // Append the response prefix
         if let Some(prefix) = chat.response_prefix() {
@@ -119,7 +149,7 @@ impl ModelType {
         prompt
     }
 
-    fn create_chatml_instruct_chat_prompt(chat: &Chat, sender: ChatRole) -> String {
+    fn create_chatml_instruct_chat_prompt(chat: &Chat, sender: ChatRole, use_think: bool) -> String {
         let mut prompt = String::new();
 
         // Add the system prompt to the system section
@@ -147,11 +177,18 @@ impl ModelType {
         prompt.push_str("<|im_end|>\n");
 
         // Add each message in the chat to the prompt as a new section
-        for message in chat {
+        let chat_messages = chat.messages();
+        for (i, message) in chat_messages.iter().enumerate() {
             match message.sender() {
                 ChatRole::User => {
                     prompt.push_str(&format!(
-                        "<|im_start|>user\n{}\n<|im_end|>\n",
+                        "<|im_start|>user\n{}{}\n<|im_end|>\n",
+                        // If this is the last message and use_think is true, add /think before the content
+                        if i == chat_messages.len() - 1 && use_think {
+                            "/think "
+                        } else {
+                            ""
+                        },
                         message.content()
                     ));
                 }

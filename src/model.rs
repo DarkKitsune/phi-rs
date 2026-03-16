@@ -126,21 +126,13 @@ impl Model {
     /// Returns an error if the prompt is empty.
     pub fn infer_iter(
         &self,
-        prompt: impl Display,
-        think: bool,
+        prompt: impl IntoTokenString,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> Result<InferIter> {
-        let mut prompt = prompt.to_string();
-
-        // If we need to think then add the <think> tag to the prompt
-        if self.model_type.can_think() && think {
-            prompt.push_str("<think>\n\n");
-        }
-
         // Add the model seed to the seed provided
         let seed = seed.wrapping_add(self.seed);
 
@@ -198,11 +190,10 @@ impl Model {
         }
 
         // Generate the basic chat prompt
-        let prompt = self.model_type.create_chat_prompt(chat, sender);
+        let prompt = self.model_type.create_chat_prompt(chat, sender, think);
 
         self.infer_iter(
             prompt,
-            think,
             seed,
             temp,
             top_p,
@@ -215,7 +206,7 @@ impl Model {
     /// Predict the text which follows the given prompt.
     pub fn predict_next(
         &self,
-        prompt: impl Display,
+        prompt: impl IntoTokenString,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
@@ -224,7 +215,6 @@ impl Model {
     ) -> InferIter {
         self.infer_iter(
             prompt,
-            false,
             seed,
             temp,
             top_p,
@@ -474,7 +464,7 @@ impl Model {
         chat.set_response_prefix(Some("The closest item in List is \"".to_string()));
 
         // Create the prompt from the chat
-        let prompt = self.model_type.create_chat_prompt(&chat, ChatRole::Model);
+        let prompt = self.model_type.create_chat_prompt(&chat, ChatRole::Model, false);
 
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity
@@ -486,7 +476,7 @@ impl Model {
 
             // Begin inference
             let mut inference = self
-                .infer_iter(prompt.clone(), false, seed, Some(temperature), None, 1.0, 0)
+                .infer_iter(prompt.clone(), seed, Some(temperature), None, 1.0, 0)
                 .unwrap();
 
             // Infer while possible_items > 1
