@@ -22,7 +22,7 @@ pub struct InferIter {
     logits_processor: LogitsProcessor,
     repeat_penalty: f32,
     repeat_last_n: usize,
-    eos_token: u32,
+    eos_tokens: (u32, u32),
     reached_eos: bool,
 }
 
@@ -36,7 +36,7 @@ impl InferIter {
         logits_processor: LogitsProcessor,
         repeat_penalty: f32,
         repeat_last_n: usize,
-        eos_token: u32,
+        eos_tokens: (u32, u32),
     ) -> Self {
         Self {
             model_type,
@@ -48,7 +48,7 @@ impl InferIter {
             logits_processor,
             repeat_penalty,
             repeat_last_n,
-            eos_token,
+            eos_tokens,
             reached_eos: false,
         }
     }
@@ -101,7 +101,7 @@ impl InferIter {
         self.step += 1;
 
         // If the token is not the end of text token, add it to the tokens
-        if next_token != self.eos_token {
+        if next_token != self.eos_tokens.0 && next_token != self.eos_tokens.1 {
             self.tokens.push_token(next_token);
         }
         // Otherwise, set reached_eos to true and return None

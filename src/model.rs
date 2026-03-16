@@ -17,7 +17,7 @@ use crate::inference::InferIter;
 use crate::model_type::ModelType;
 use crate::token_string::{IntoTokenString, TokenString};
 
-pub const MAX_TOKENS: usize = 2048;
+pub const MAX_TOKENS: usize = 32768;
 
 #[derive(Clone)]
 pub struct Model {
@@ -153,10 +153,14 @@ impl Model {
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
 
         // Get the end of text token
-        let eos_token = self
+        let eos_tokens = (
+            self
             .get_token("<|im_end|>")
-            .or_else(|_| self.get_token("<|endoftext|>"))
-            .unwrap();
+            .unwrap(),
+            self
+            .get_token("<|endoftext|>")
+            .unwrap(),
+        );
 
         // Create the iterator
         Ok(InferIter::new(
@@ -168,7 +172,7 @@ impl Model {
             logits_processor,
             repeat_penalty,
             repeat_last_n,
-            eos_token,
+            eos_tokens,
         ))
     }
 
@@ -176,7 +180,7 @@ impl Model {
     pub fn chat(
         &self,
         chat: &Chat,
-        sender: ChatRole,
+        sender: &ChatRole,
         think: bool,
         seed: u64,
         temp: Option<f64>,
@@ -184,10 +188,19 @@ impl Model {
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> InferIter {
+        const THINK_TEMP_MULTIPLIER: f64 = 0.85;
+
         // Panic if the model type does not support chat
         if !self.model_type.can_chat() {
             panic!("Model type {:?} does not support chat", self.model_type);
         }
+
+        // If thinking, reduce the temperature a bit
+        let temp = if think {
+            temp.map(|t| t * THINK_TEMP_MULTIPLIER)
+        } else {
+            temp
+        };
 
         // Generate the basic chat prompt
         let prompt = self.model_type.create_chat_prompt(chat, sender, think);
@@ -201,6 +214,23 @@ impl Model {
             repeat_last_n,
         )
         .unwrap()
+    }
+
+    /// Instruct a model and return an iterator over the response.
+    pub fn instruct(
+        &self,
+        instruction: impl Display,
+        think: bool,
+        seed: u64,
+        temp: Option<f64>,
+        top_p: Option<f64>,
+        repeat_penalty: f32,
+        repeat_last_n: usize,
+    ) -> InferIter {
+        // Give the model the instruction as a chat message
+        let mut chat = Chat::new();
+        chat.add_message(ChatRole::User, instruction.to_string());
+        self.chat(&chat, &ChatRole::Model, think, seed, temp, top_p, repeat_penalty, repeat_last_n)
     }
 
     /// Predict the text which follows the given prompt.
@@ -285,7 +315,7 @@ impl Model {
         // Set the response prefix to "[" to encourage generating a "]"
         chat.set_response_prefix(Some("Here's an example like you described: [".to_string()));
 
-        self.chat(&chat, ChatRole::Model, false, seed, temp, None, 1.1, 128)
+        self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 128)
             .complete(&["]", "\n"])
             .0
     }
@@ -311,7 +341,7 @@ impl Model {
             "Certainly, here is my summary of the text you provided:\n\"".to_string(),
         ));
 
-        self.chat(&chat, ChatRole::Model, false, seed, temp, None, 1.0, 0)
+        self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.0, 0)
             .complete(&["\"", "\n"])
             .0
     }
@@ -407,7 +437,7 @@ impl Model {
         // Set the response prefix to avoid extra fluff
         chat.set_response_prefix(Some("Here is the expanded text: \"".to_string()));
 
-        self.chat(&chat, ChatRole::Model, false, seed, temp, None, 1.1, 64)
+        self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 64)
             .complete(&["\"", "\n"])
             .0
     }
@@ -464,7 +494,7 @@ impl Model {
         chat.set_response_prefix(Some("The closest item in List is \"".to_string()));
 
         // Create the prompt from the chat
-        let prompt = self.model_type.create_chat_prompt(&chat, ChatRole::Model, false);
+        let prompt = self.model_type.create_chat_prompt(&chat, &ChatRole::Model, false);
 
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity

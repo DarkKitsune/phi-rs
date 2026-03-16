@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::{inference::InferValue, model::Model};
+use crate::{inference::InferValue, model::{self, Model}};
 
 /// Represents a chat between user and model.
 #[derive(Clone, Debug)]
@@ -24,9 +24,9 @@ impl Chat {
     const TOKENS_PER_CHARACTER: f64 = 0.25;
     /// Maximum number of tokens for the entire chat, including messages,
     /// system prompt, long term memory and extra data.
-    const MAX_TOTAL_TOKENS: usize = 2048;
+    const MAX_TOTAL_TOKENS: usize = model::MAX_TOKENS;
     /// Maximum number of tokens for the long term memory.
-    const MAX_LONG_TERM_MEMORY: usize = 768;
+    const MAX_LONG_TERM_MEMORY: usize = Self::MAX_TOTAL_TOKENS / 4;
     /// Token count threshold for compressing the chat.
     const COMPRESS_THRESHOLD: usize = const {
         Self::MAX_TOTAL_TOKENS
@@ -66,7 +66,7 @@ impl Chat {
     /// Infer a new chat message using the model and push it to the chat.
     pub fn infer_message(
         &mut self,
-        sender: ChatRole,
+        sender: &ChatRole,
         model: &Model,
         think: bool,
         seed: u64,
@@ -84,7 +84,7 @@ impl Chat {
         let response = model
             .chat(
                 self,
-                sender.clone(),
+                sender,
                 think,
                 seed,
                 temp,
@@ -95,7 +95,7 @@ impl Chat {
             .complete(end_sequences)
             .0;
 
-        self.add_message(sender, response);
+        self.add_message(sender.clone(), response);
     }
 
     /// Returns a reference to the messages in the chat.
@@ -194,7 +194,7 @@ impl Chat {
             history.push_str(
                 format!(
                     "{}: \"{}\"",
-                    model.model_type().chat_role_name(message.sender().clone()),
+                    model.model_type().chat_role_name(message.sender()),
                     message.content()
                 )
                 .as_str(),
@@ -287,6 +287,7 @@ impl Display for ChatRole {
         match self {
             ChatRole::User => write!(f, "User"),
             ChatRole::Model => write!(f, "Model"),
+            ChatRole::Other(name) => write!(f, "{}", name),
         }
     }
 }
@@ -296,4 +297,5 @@ impl Display for ChatRole {
 pub enum ChatRole {
     User,
     Model,
+    Other(String)
 }

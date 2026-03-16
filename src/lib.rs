@@ -16,7 +16,7 @@ mod tests {
     #[test]
     fn chat() {
         const SEED: u64 = 477474;
-        const TEMP: f64 = 0.55;
+        const TEMP: f64 = 0.7;
         const CONVERSATION_TURNS: usize = 14;
 
         // Create the model
@@ -43,7 +43,7 @@ mod tests {
 
             // Infer a model response
             chat.infer_message(
-                ChatRole::Model,
+                &ChatRole::Model,
                 &model,
                 false,
                 SEED.wrapping_add(turn as u64),
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn generate_dog_sentences() {
         const SEED: u64 = 246810;
-        const TEMP: f64 = 0.6;
+        const TEMP: f64 = 0.7;
         const NUM_TO_GENERATE: usize = 7;
         const DOG_EXAMPLES: &[&str] = &[
             "The quick brown fox jumps over the lazy dog.",
@@ -237,23 +237,33 @@ mod tests {
     #[test]
     fn thinking() {
         const SEED: u64 = 3463;
-        const TEMP: f64 = 0.5;
+        const TEMP: f64 = 0.7;
 
         // Create the model and chat
         let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
-        let mut chat = Chat::new();
-        chat.add_message(ChatRole::User, "If a train leaves Station A at 60 mph and another leaves Station B 100 miles away at 40 mph towards each other, when do they meet?");
-
-        // Ask the model to think about the problem
+        
+        // Have the model think about the meaning behind a text
         let result = model
-            .chat(&chat, ChatRole::Model, true, SEED, Some(TEMP), None, 1.0, 0)
+            .instruct("What is the meaning behind the text: 'To be, or not to be, that is the question.'", true, SEED, Some(TEMP), None, 1.0, 0)
+            .complete(&["</think>"])
+            .0
+            .trim()
+            .to_string();
+
+        println!("Result: {}", result);
+
+        // Give the model a simple problem to think about
+        let result = model
+            .instruct("If a train leaves Station A at 60 mph and another leaves Station B 100 miles away at 40 mph towards each other, when do they meet?", true, SEED, Some(TEMP), None, 1.0, 0)
             .complete(&[])
-            .0;
+            .0
+            .trim()
+            .to_string();
 
         // Parse everything before and after the </think> closing tag
         let parts: Vec<&str> = result.split("</think>").collect();
-        let thoughts = parts.get(0).unwrap_or(&"").trim();
-        let rest = parts.get(1).unwrap_or(&"").trim();
+        let thoughts = parts.get(0).unwrap_or(&"").trim_end();
+        let rest = parts.get(1).unwrap_or(&"").trim_start();
 
         println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts, rest);
     }

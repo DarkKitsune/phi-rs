@@ -122,10 +122,10 @@ impl ModelType {
     }
 
     /// Creates a chat prompt meant for this type of Phi model.
-    pub fn create_chat_prompt(&self, chat: &Chat, sender: ChatRole, think: bool) -> String {
+    pub fn create_chat_prompt(&self, chat: &Chat, sender: &ChatRole, think: bool) -> String {
         let mut prompt = match self {
             // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat),
-            _ => Self::create_chatml_instruct_chat_prompt(chat, sender, self.can_think() && think && self.use_think_in_prompt()),
+            _ => self.create_chatml_instruct_chat_prompt(chat, sender, self.can_think() && think && self.use_think_in_prompt()),
         };
 
         // Think block
@@ -149,7 +149,7 @@ impl ModelType {
         prompt
     }
 
-    fn create_chatml_instruct_chat_prompt(chat: &Chat, sender: ChatRole, use_think: bool) -> String {
+    fn create_chatml_instruct_chat_prompt(&self, chat: &Chat, sender: &ChatRole, use_think: bool) -> String {
         let mut prompt = String::new();
 
         // Add the system prompt to the system section
@@ -198,25 +198,30 @@ impl ModelType {
                         message.content()
                     ));
                 }
+                ChatRole::Other(name) => {
+                    prompt.push_str(&format!(
+                        "<|im_start|>{}\n{}\n<|im_end|>\n",
+                        name,
+                        message.content()
+                    ));
+                }
             }
         }
 
         // Start the final assistant section (response)
         prompt.push_str("<|im_start|>");
-        prompt.push_str(match sender {
-            ChatRole::User => "user",
-            ChatRole::Model => "assistant",
-        });
+        prompt.push_str(self.chat_role_name(&sender));
         prompt.push_str("\n");
 
         prompt
     }
 
-    pub fn chat_role_name(&self, role: ChatRole) -> &'static str {
+    pub fn chat_role_name<'a>(&self, role: &'a ChatRole) -> &'a str {
         match self {
             _ => match role {
-                ChatRole::Model => "Assistant",
-                ChatRole::User => "User",
+                ChatRole::Model => "assistant",
+                ChatRole::User => "user",
+                ChatRole::Other(name) => name,
             },
         }
     }
