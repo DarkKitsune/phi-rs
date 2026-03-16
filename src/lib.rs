@@ -1,7 +1,7 @@
 pub mod chat;
+pub mod inference;
 pub mod model;
 pub mod model_type;
-pub mod inference;
 pub mod prelude;
 pub mod token_string;
 
@@ -24,8 +24,10 @@ mod tests {
 
         // Start a chat
         let mut chat = Chat::new();
-        chat.set_system_prompt("You are a helpful assistant and friendly person who has a great imagination, \
-        an open mind, and is fun to talk to. Talk to the user in a friendly and engaging manner.");
+        chat.set_system_prompt(
+            "You are a helpful assistant and friendly person who has a great imagination, \
+        an open mind, and is fun to talk to. Talk to the user in a friendly and engaging manner.",
+        );
 
         println!("System: {}", chat.system_prompt());
 
@@ -40,7 +42,16 @@ mod tests {
             chat.add_message(ChatRole::User, input);
 
             // Infer a model response
-            chat.infer_message(ChatRole::Model, &model, false, SEED.wrapping_add(turn as u64), Some(TEMP), 1.0, 0, false);
+            chat.infer_message(
+                ChatRole::Model,
+                &model,
+                false,
+                SEED.wrapping_add(turn as u64),
+                Some(TEMP),
+                1.0,
+                0,
+                false,
+            );
             println!("\n{}\n", chat.last_message().unwrap());
         }
     }
@@ -154,10 +165,17 @@ mod tests {
         // Create the model
         let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
-        let mut text = "The quick brown fox jumps over the lazy dog. The slow brown cow, however, is".to_string();
+        let mut text =
+            "The quick brown fox jumps over the lazy dog. The slow brown cow, however, is"
+                .to_string();
 
         // Predict the rest of the text
-        text.push_str(&model.predict_next(&text, SEED, Some(TEMP), None, 1.0, 0).complete(&["\n"]).0);
+        text.push_str(
+            &model
+                .predict_next(&text, SEED, Some(TEMP), None, 1.0, 0)
+                .complete(&["\n"])
+                .0,
+        );
         println!("Completed text: {}", text);
     }
 
@@ -180,13 +198,17 @@ mod tests {
         // Simulate a conversation
         for turn in 0..(CONVERSATION_TURNS as u64) {
             // Decide which character is speaking this turn
-            let speaking_character = CHARACTER_NAMES[(SEED.wrapping_add(turn).into_random::<u64>() as usize) % CHARACTER_NAMES.len()];
+            let speaking_character = CHARACTER_NAMES
+                [(SEED.wrapping_add(turn).into_random::<u64>() as usize) % CHARACTER_NAMES.len()];
 
             // Start the character's dialogue
             chat.push_str(&format!("\n{}: \"", speaking_character));
 
             // Generate the character's dialogue by predicting the next part of the conversation
-            let response = model.predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.0, 0).complete(&["\"", "\n"]).0;
+            let response = model
+                .predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.0, 0)
+                .complete(&["\"", "\n"])
+                .0;
             chat.push_str(&format!("{}\"", response));
         }
 
@@ -203,14 +225,19 @@ mod tests {
 
         // Generate a story
         let mut story = "There was once".to_string();
-        story.push_str(&model.predict_next("There was once", SEED, Some(TEMP), None, 1.1, 64).complete(&["\n"]).0);
+        story.push_str(
+            &model
+                .predict_next("There was once", SEED, Some(TEMP), None, 1.1, 64)
+                .complete(&["\n"])
+                .0,
+        );
         println!("Generated story:\n{}", story);
     }
 
     #[test]
     fn thinking() {
         const SEED: u64 = 13579;
-        const TEMP: f64 = 0.7;
+        const TEMP: f64 = 0.5;
 
         // Create the model and chat
         let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
@@ -218,9 +245,10 @@ mod tests {
         chat.add_message(ChatRole::User, "If a train leaves Station A at 60 mph and another leaves Station B 100 miles away at 40 mph towards each other, when do they meet?");
 
         // Ask the model to think about the problem
-        let result = model.chat(&chat, ChatRole::Model, true, SEED, Some(TEMP), None, 1.0, 0)
-        .complete(&[])
-        .0;
+        let result = model
+            .chat(&chat, ChatRole::Model, true, SEED, Some(TEMP), None, 1.0, 0)
+            .complete(&[])
+            .0;
 
         // Parse everything before and after the </think> closing tag
         let parts: Vec<&str> = result.split("</think>").collect();
@@ -228,5 +256,98 @@ mod tests {
         let result = parts.get(1).unwrap_or(&"").trim();
 
         println!("\nThoughts:\n{}\nResult:\n{}\n", thoughts, result);
+    }
+
+    #[test]
+    fn top_ten_list() {
+        const SEED: u64 = 56559;
+        const TEMP: f64 = 0.7;
+        const MIN_ITEM_LENGTH: usize = 50;
+        // Appended to the end of the topic to encourage more from the model
+        const TOPIC_EXTENSION: &[&str] = &[
+            ", And Why",
+            " That Left",
+            " That Totally",
+            " You Should Be",
+            " Your",
+        ];
+
+        // Create the model
+        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+
+        // Choose a random extension to append to the topic
+        let extension = TOPIC_EXTENSION
+            [(SEED.wrapping_add(0).into_random::<u64>() as usize) % TOPIC_EXTENSION.len()];
+
+        // Ask the model for a topic
+        let mut topic = format!(
+            "Top Ten {}{}",
+            model
+                .predict_next(
+                    "I came up with a goofy title for the article: \"Top Ten",
+                    SEED,
+                    Some(TEMP),
+                    None,
+                    1.1,
+                    64
+                )
+                .complete(&[",", "\"", "\n"])
+                .0
+                .trim()
+                .replace(".", ""),
+            extension
+        );
+        topic.push_str(&format!(
+            " {}",
+            model
+                .predict_next(
+                    &format!("I came up with a goofy title for the article: \"{}", topic),
+                    SEED,
+                    Some(TEMP),
+                    None,
+                    1.1,
+                    64
+                )
+                .complete(&[",", "\"", "\n"])
+                .0
+                .trim()
+                .replace(".", ""),
+        ));
+
+        // Ask the model for ten items for the top ten list
+        let mut list = topic.clone();
+        list.push_str(":\n");
+        for i in 1..=10 {
+            // Add the item number to the list
+            list.push_str(&format!("{}.)", i));
+
+            // Get the i-th item for the top ten list
+            let item = model
+                .predict_next(format!("{} \"", &list), SEED, Some(TEMP), None, 1.1, 128)
+                .complete(&[".", "\"", "\n"])
+                .0
+                .trim()
+                .to_string();
+
+            // Add the item to the list
+            list.push_str(&format!(" {}", item));
+
+            // If the item is too short, ask the model to expand on it
+            if item.len() < MIN_ITEM_LENGTH {
+                list.push(':');
+
+                let expansion = model
+                    .predict_next(&list, SEED, Some(TEMP), None, 1.1, 64)
+                    .complete(&[".", "\n"])
+                    .0
+                    .trim()
+                    .to_string();
+                list.push_str(&format!(" {}", expansion));
+            }
+
+            list.push_str("\n");
+        }
+
+        println!("Final Top Ten List:\n{}", list);
     }
 }

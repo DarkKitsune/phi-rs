@@ -224,9 +224,7 @@ impl Chat {
 
         println!(
             "Chat history after compression:\n{}\n{}",
-            self.long_term_memory()
-                .unwrap()
-                .to_string(),
+            self.long_term_memory().unwrap().to_string(),
             self.messages()
                 .iter()
                 .map(|m| m.to_string())

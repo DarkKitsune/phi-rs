@@ -1,10 +1,16 @@
-use std::{fmt::{Debug, Display}, str::FromStr};
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
 
 use anyhow::Result;
 use candle_core::{Device, Tensor};
 use candle_transformers::generation::LogitsProcessor;
 
-use crate::{model::Pipeline, prelude::{ModelType, TokenString}};
+use crate::{
+    model::Pipeline,
+    prelude::{ModelType, TokenString},
+};
 
 pub struct InferIter {
     model_type: ModelType,
@@ -55,15 +61,12 @@ impl InferIter {
 
         // Get the context size for this step
         let context_size = if self.step > 0 { 1 } else { self.tokens.len() };
-        
+
         // Get the start position for the context
         let start_pos = self.tokens.len().saturating_sub(context_size);
 
         // Get the context
-        let context = self
-            .tokens
-            .get(start_pos..)
-            .unwrap();
+        let context = self.tokens.get(start_pos..).unwrap();
 
         // Create the input tensor containing the context
         let input = Tensor::new(context, &self.device)
@@ -156,7 +159,6 @@ impl Iterator for InferIter {
         self.next_token()
     }
 }
-
 
 #[derive(Clone)]
 pub enum InferValue {

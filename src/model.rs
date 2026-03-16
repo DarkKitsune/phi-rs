@@ -2,8 +2,6 @@ use std::fmt::{Debug, Display};
 
 use anyhow::{Error as E, Result};
 
-//use candle_transformers::models::mixformer::{Config, MixFormerSequentialForCausalLM as MixFormer};
-use candle_transformers::models::phi::{Config as PhiConfig, Model as Phi};
 use candle_transformers::models::qwen2::{Config as Qwen2Config, ModelForCausalLM as Qwen2};
 use candle_transformers::models::qwen3::{Config as Qwen3Config, ModelForCausalLM as Qwen3};
 
@@ -48,7 +46,11 @@ impl Model {
 
         // Get the tokenizer and model files
         let tokenizer_filename = tokenizer_repo.get(model_type.tokenizer_json_name())?;
-        let model_filenames = model_type.model_names().iter().map(|name| model_repo.get(name)).collect::<Result<Vec<_>, _>>()?;
+        let model_filenames = model_type
+            .model_names()
+            .iter()
+            .map(|name| model_repo.get(name))
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Create VarBuilder
         let vb =
@@ -133,9 +135,9 @@ impl Model {
         repeat_last_n: usize,
     ) -> Result<InferIter> {
         let mut prompt = prompt.to_string();
-        
+
         // If we need to think then add the <think> tag to the prompt
-        if self.model_type.can_think() && think{
+        if self.model_type.can_think() && think {
             prompt.push_str("<think>\n\n");
         }
 
@@ -151,13 +153,18 @@ impl Model {
         }
 
         // Create pipeline
-        let pipeline = self.model_type.create_pipeline(&self.config, self.vb.clone());
+        let pipeline = self
+            .model_type
+            .create_pipeline(&self.config, self.vb.clone());
 
         // Create logits processor
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
 
         // Get the end of text token
-        let eos_token = self.get_token("<|im_end|>").or_else(|_| self.get_token("<|endoftext|>")).unwrap();
+        let eos_token = self
+            .get_token("<|im_end|>")
+            .or_else(|_| self.get_token("<|endoftext|>"))
+            .unwrap();
 
         // Create the iterator
         Ok(InferIter::new(
@@ -193,8 +200,16 @@ impl Model {
         // Generate the basic chat prompt
         let prompt = self.model_type.create_chat_prompt(chat, sender);
 
-        self.infer_iter(prompt, think, seed, temp, top_p, repeat_penalty, repeat_last_n)
-            .unwrap()
+        self.infer_iter(
+            prompt,
+            think,
+            seed,
+            temp,
+            top_p,
+            repeat_penalty,
+            repeat_last_n,
+        )
+        .unwrap()
     }
 
     /// Predict the text which follows the given prompt.
@@ -207,10 +222,17 @@ impl Model {
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> InferIter {
-        self.infer_iter(prompt, false, seed, temp, top_p, repeat_penalty, repeat_last_n)
-            .unwrap()
+        self.infer_iter(
+            prompt,
+            false,
+            seed,
+            temp,
+            top_p,
+            repeat_penalty,
+            repeat_last_n,
+        )
+        .unwrap()
     }
-
 
     /// Generate a string similar to the given example strings.
     pub fn generate_similar(
@@ -393,9 +415,7 @@ impl Model {
         );
 
         // Set the response prefix to avoid extra fluff
-        chat.set_response_prefix(Some(
-            "Here is the expanded text: \"".to_string(),
-        ));
+        chat.set_response_prefix(Some("Here is the expanded text: \"".to_string()));
 
         self.chat(&chat, ChatRole::Model, false, seed, temp, None, 1.1, 64)
             .complete(&["\"", "\n"])
@@ -505,7 +525,6 @@ impl Model {
 
 /// Contains a pipeline, could be one of multiple types.
 pub enum Pipeline {
-    Phi(Phi),
     Qwen2(Qwen2),
     Qwen3(Qwen3),
 }
@@ -513,7 +532,6 @@ pub enum Pipeline {
 impl Pipeline {
     pub fn forward(&mut self, xs: &Tensor, start_pos: usize) -> Tensor {
         match self {
-            Pipeline::Phi(phi) => phi.forward(xs).unwrap(),
             Pipeline::Qwen2(qwen2) => qwen2.forward(xs, start_pos).unwrap(),
             Pipeline::Qwen3(qwen3) => qwen3.forward(xs, start_pos).unwrap(),
         }
@@ -523,19 +541,11 @@ impl Pipeline {
 /// Contains a model config
 #[derive(Debug, Clone)]
 pub enum DynConfig {
-    Phi(PhiConfig),
     Qwen2(Qwen2Config),
     Qwen3(Qwen3Config),
 }
 
 impl DynConfig {
-    pub fn as_phi(&self) -> Option<&PhiConfig> {
-        match self {
-            DynConfig::Phi(config) => Some(config),
-            _ => None,
-        }
-    }
-
     pub fn as_qwen2(&self) -> Option<&Qwen2Config> {
         match self {
             DynConfig::Qwen2(config) => Some(config),
@@ -549,5 +559,4 @@ impl DynConfig {
             _ => None,
         }
     }
-
 }

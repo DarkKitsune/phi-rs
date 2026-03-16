@@ -1,6 +1,5 @@
 use candle_core::{DType, Tensor};
 use candle_nn::VarBuilder;
-use candle_transformers::models::phi::{Model as Phi};
 use candle_transformers::models::qwen2::ModelForCausalLM as Qwen2;
 use candle_transformers::models::qwen3::ModelForCausalLM as Qwen3;
 use hf_hub::api::sync::ApiRepo;
@@ -11,8 +10,6 @@ use crate::model::{DynConfig, Pipeline};
 /// Represents the type of model to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModelType {
-    // PhiHermes,
-    Phi15Instruct,
     Qwen25Instruct,
     Qwen3,
 }
@@ -20,8 +17,7 @@ pub enum ModelType {
 impl ModelType {
     pub fn can_chat(&self) -> bool {
         match self {
-            ModelType::Phi15Instruct
-            | ModelType::Qwen25Instruct => true,
+            ModelType::Qwen25Instruct => true,
             _ => false,
         }
     }
@@ -29,14 +25,11 @@ impl ModelType {
     pub fn can_think(&self) -> bool {
         match self {
             ModelType::Qwen3 | ModelType::Qwen25Instruct => true,
-            _ => false,
         }
     }
 
     pub fn model_repo(&self) -> &'static str {
         match self {
-            // ModelType::PhiHermes => "lmz/candle-quantized-phi",
-            ModelType::Phi15Instruct => "rasyosef/Phi-1_5-Instruct-v0.1",
             ModelType::Qwen25Instruct => "Qwen/Qwen2.5-1.5B-Instruct",
             ModelType::Qwen3 => "Qwen/Qwen3-1.7B",
         }
@@ -44,8 +37,6 @@ impl ModelType {
 
     pub fn tokenizer_repo(&self) -> &'static str {
         match self {
-            // ModelType::PhiHermes => "lmz/candle-quantized-phi",
-            ModelType::Phi15Instruct => "rasyosef/Phi-1_5-Instruct-v0.1",
             ModelType::Qwen25Instruct => "Qwen/Qwen2.5-1.5B-Instruct",
             ModelType::Qwen3 => "Qwen/Qwen3-1.7B",
         }
@@ -53,15 +44,16 @@ impl ModelType {
 
     pub fn tokenizer_json_name(&self) -> &'static str {
         match self {
-            // ModelType::PhiHermes => "tokenizer-puffin-phi-v2.json",
             _ => "tokenizer.json",
         }
     }
 
     pub fn model_names(&self) -> &[&'static str] {
         match self {
-            // ModelType::PhiHermes => "model-phi-hermes-1_3B.safetensors",
-            ModelType::Qwen3 => &["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"],
+            ModelType::Qwen3 => &[
+                "model-00001-of-00002.safetensors",
+                "model-00002-of-00002.safetensors",
+            ],
             _ => &["model.safetensors"],
         }
     }
@@ -69,18 +61,12 @@ impl ModelType {
     /// Load and create a config for this type of model.
     pub fn create_config(&self, repo: &ApiRepo) -> DynConfig {
         match self {
-            ModelType::Phi15Instruct => {
-                let config_filename = repo.get("config.json").unwrap();
-                let config = std::fs::read_to_string(config_filename).unwrap();
-                let config = serde_json::from_str(&config).unwrap();
-                DynConfig::Phi(config)
-            },
             ModelType::Qwen25Instruct => {
                 let config_filename = repo.get("config.json").unwrap();
                 let config = std::fs::read_to_string(config_filename).unwrap();
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen2(config)
-            },
+            }
             ModelType::Qwen3 => {
                 let config_filename = repo.get("config.json").unwrap();
                 let config = std::fs::read_to_string(config_filename).unwrap();
@@ -93,32 +79,30 @@ impl ModelType {
     /// Create a pipeline for this type of model.
     pub fn create_pipeline(&self, config: &DynConfig, var: VarBuilder) -> Pipeline {
         match self {
-            ModelType::Phi15Instruct => {
-                Pipeline::Phi(Phi::new(config.as_phi().unwrap(), var).unwrap())
-            },
             ModelType::Qwen25Instruct => {
                 Pipeline::Qwen2(Qwen2::new(config.as_qwen2().unwrap(), var).unwrap())
-            },
+            }
             ModelType::Qwen3 => {
                 Pipeline::Qwen3(Qwen3::new(config.as_qwen3().unwrap(), var).unwrap())
-            },
+            }
         }
     }
 
     /// Preprocesses the logits for this model type.
     pub fn process_logits(&self, logits: Tensor) -> Tensor {
         match self {
-            ModelType::Phi15Instruct => {
-                // Process logits for Phi15Instruct model
-                logits.squeeze(0).unwrap().to_dtype(DType::F32).unwrap()
-            }
             ModelType::Qwen25Instruct | ModelType::Qwen3 => {
                 // Process logits for Qwen3 model
-                logits.squeeze(0).unwrap().squeeze(0).unwrap().to_dtype(DType::F32).unwrap()
+                logits
+                    .squeeze(0)
+                    .unwrap()
+                    .squeeze(0)
+                    .unwrap()
+                    .to_dtype(DType::F32)
+                    .unwrap()
             }
         }
     }
-
 
     /// Creates a chat prompt meant for this type of Phi model.
     pub fn create_chat_prompt(&self, chat: &Chat, sender: ChatRole) -> String {
