@@ -125,7 +125,11 @@ impl ModelType {
     pub fn create_chat_prompt(&self, chat: &Chat, sender: &ChatRole, think: bool) -> String {
         let mut prompt = match self {
             // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat),
-            _ => self.create_chatml_instruct_chat_prompt(chat, sender, self.can_think() && think && self.use_think_in_prompt()),
+            _ => self.create_chatml_instruct_chat_prompt(
+                chat,
+                sender,
+                self.can_think() && think && self.use_think_in_prompt(),
+            ),
         };
 
         // Think block
@@ -140,7 +144,6 @@ impl ModelType {
             }
         }
 
-
         // Append the response prefix
         if let Some(prefix) = chat.response_prefix() {
             prompt.push_str(prefix);
@@ -149,7 +152,12 @@ impl ModelType {
         prompt
     }
 
-    fn create_chatml_instruct_chat_prompt(&self, chat: &Chat, sender: &ChatRole, use_think: bool) -> String {
+    fn create_chatml_instruct_chat_prompt(
+        &self,
+        chat: &Chat,
+        sender: &ChatRole,
+        use_think: bool,
+    ) -> String {
         let mut prompt = String::new();
 
         // Add the system prompt to the system section
@@ -164,12 +172,8 @@ impl ModelType {
         // Add extra data as key-value pairs for the model to understand
         if let Some(extra_data) = chat.extra_data() {
             prompt.push_str(&format!(
-                "What you know: {{\n{}\n}}\n",
-                extra_data
-                    .iter()
-                    .map(|(k, v)| format!("\"{}\" = {}", k, v))
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                "<notes>\n{}\n</notes>\n",
+                serde_json::to_string(extra_data).unwrap()
             ));
         }
 
@@ -187,14 +191,25 @@ impl ModelType {
                         if i == chat_messages.len() - 1 && use_think {
                             "/think "
                         } else {
-                            ""
+                            // Otherwise, use /no_think instead if necessary
+                            if self.use_think_in_prompt() {
+                                "/no_think "
+                            } else {
+                                ""
+                            }
                         },
                         message.content()
                     ));
                 }
                 ChatRole::Model => {
                     prompt.push_str(&format!(
-                        "<|im_start|>assistant\n{}\n<|im_end|>\n",
+                        "<|im_start|>assistant\n{}{}\n<|im_end|>\n",
+                        // If this model must think, add an empty think block
+                        if self.must_think() {
+                            "<think>\n\n\n</think>\n"
+                        } else {
+                            ""
+                        },
                         message.content()
                     ));
                 }

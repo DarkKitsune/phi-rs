@@ -1,4 +1,5 @@
 pub mod chat;
+pub mod data;
 pub mod inference;
 pub mod model;
 pub mod model_type;
@@ -118,7 +119,7 @@ mod tests {
         ];
 
         // Create the model
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         // Start dog sentences
         println!(
@@ -235,22 +236,12 @@ mod tests {
     }
 
     #[test]
-    fn thinking() {
+    fn thinking_simple_math() {
         const SEED: u64 = 3463;
         const TEMP: f64 = 0.7;
 
         // Create the model and chat
         let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
-        
-        // Have the model think about the meaning behind a text
-        let result = model
-            .instruct("What is the meaning behind the text: 'To be, or not to be, that is the question.'", true, SEED, Some(TEMP), None, 1.0, 0)
-            .complete(&["</think>"])
-            .0
-            .trim()
-            .to_string();
-
-        println!("Result: {}", result);
 
         // Give the model a simple problem to think about
         let result = model
@@ -269,95 +260,57 @@ mod tests {
     }
 
     #[test]
-    fn top_ten_list() {
-        const SEED: u64 = 56559;
+    fn thinking_literature() {
+        const SEED: u64 = 3463;
         const TEMP: f64 = 0.7;
-        const MIN_ITEM_LENGTH: usize = 50;
-        // Appended to the end of the topic to encourage more from the model
-        const TOPIC_EXTENSION: &[&str] = &[
-            ", And Why",
-            " That Left",
-            " That Totally",
-            " You Should Be",
-            " Your",
-        ];
 
-        // Create the model
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        // Create the model and chat
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
-        // Choose a random extension to append to the topic
-        let extension = TOPIC_EXTENSION
-            [(SEED.wrapping_add(0).into_random::<u64>() as usize) % TOPIC_EXTENSION.len()];
+        // Give the model a literary analysis problem to think about
+        let result = model
+            .instruct(
+                "Analyze the following poem and explain its themes:\n\
+                Two roads diverged in a yellow wood,\n\
+                And sorry I could not travel both\n\
+                And be one traveler, long I stood\n\
+                And looked down one as far as I could\n\
+                To where it bent in the undergrowth;\n\
+                \n\
+                Then took the other, as just as fair,\n\
+                And having perhaps the better claim,\n\
+                Because it was grassy and wanted wear;\n\
+                Though as for that the passing there\n\
+                Had worn them really about the same,\n\
+                \n\
+                And both that morning equally lay\n\
+                In leaves no step had trodden black.\n\
+                Oh, I kept the first for another day!\n\
+                Yet knowing how way leads on to way,\n\
+                I doubted if I should ever come back.\n\
+                \n\
+                I shall be telling this with a sigh\n\
+                Somewhere ages and ages hence:\n\
+                Two roads diverged in a wood, and I—\n\
+                I took the one less traveled by,\n\
+                And that has made all the difference.'",
+                true,
+                SEED,
+                Some(TEMP),
+                None,
+                1.0,
+                0,
+            )
+            .complete(&[])
+            .0
+            .trim()
+            .to_string();
 
-        // Ask the model for a topic
-        let mut topic = format!(
-            "Top Ten {}{}",
-            model
-                .predict_next(
-                    "I came up with a goofy title for the article: \"Top Ten",
-                    SEED,
-                    Some(TEMP),
-                    None,
-                    1.1,
-                    64
-                )
-                .complete(&[",", "\"", "\n"])
-                .0
-                .trim()
-                .replace(".", ""),
-            extension
-        );
-        topic.push_str(&format!(
-            " {}",
-            model
-                .predict_next(
-                    &format!("I came up with a goofy title for the article: \"{}", topic),
-                    SEED,
-                    Some(TEMP),
-                    None,
-                    1.1,
-                    64
-                )
-                .complete(&[",", "\"", "\n"])
-                .0
-                .trim()
-                .replace(".", ""),
-        ));
+        // Parse everything before and after the </think> closing tag
+        let parts: Vec<&str> = result.split("</think>").collect();
+        let thoughts = parts.get(0).unwrap_or(&"").trim_end();
+        let rest = parts.get(1).unwrap_or(&"").trim_start();
 
-        // Ask the model for ten items for the top ten list
-        let mut list = topic.clone();
-        list.push_str(":\n");
-        for i in 1..=10 {
-            // Add the item number to the list
-            list.push_str(&format!("{}.)", i));
-
-            // Get the i-th item for the top ten list
-            let item = model
-                .predict_next(format!("{} \"", &list), SEED, Some(TEMP), None, 1.1, 128)
-                .complete(&[".", "\"", "\n"])
-                .0
-                .trim()
-                .to_string();
-
-            // Add the item to the list
-            list.push_str(&format!(" {}", item));
-
-            // If the item is too short, ask the model to expand on it
-            if item.len() < MIN_ITEM_LENGTH {
-                list.push(':');
-
-                let expansion = model
-                    .predict_next(&list, SEED, Some(TEMP), None, 1.1, 64)
-                    .complete(&[".", "\n"])
-                    .0
-                    .trim()
-                    .to_string();
-                list.push_str(&format!(" {}", expansion));
-            }
-
-            list.push_str("\n");
-        }
-
-        println!("Final Top Ten List:\n{}", list);
+        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts, rest);
     }
 }

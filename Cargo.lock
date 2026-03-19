@@ -1266,6 +1266,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ggquill"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "ggmath",
+ "hf-hub",
+ "itertools",
+ "serde_json",
+ "tokenizers",
+]
+
+[[package]]
 name = "gif"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2211,21 +2226,6 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
-
-[[package]]
-name = "phi-rs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "candle-core",
- "candle-nn",
- "candle-transformers",
- "ggmath",
- "hf-hub",
- "itertools",
- "serde_json",
- "tokenizers",
-]
 
 [[package]]
 name = "pin-project-lite"

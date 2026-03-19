@@ -13,6 +13,7 @@ use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
 use crate::chat::{Chat, ChatRole};
+use crate::data::JsonValue;
 use crate::inference::InferIter;
 use crate::model_type::ModelType;
 use crate::token_string::{IntoTokenString, TokenString};
@@ -154,12 +155,8 @@ impl Model {
 
         // Get the end of text token
         let eos_tokens = (
-            self
-            .get_token("<|im_end|>")
-            .unwrap(),
-            self
-            .get_token("<|endoftext|>")
-            .unwrap(),
+            self.get_token("<|im_end|>").unwrap(),
+            self.get_token("<|endoftext|>").unwrap(),
         );
 
         // Create the iterator
@@ -205,15 +202,8 @@ impl Model {
         // Generate the basic chat prompt
         let prompt = self.model_type.create_chat_prompt(chat, sender, think);
 
-        self.infer_iter(
-            prompt,
-            seed,
-            temp,
-            top_p,
-            repeat_penalty,
-            repeat_last_n,
-        )
-        .unwrap()
+        self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
+            .unwrap()
     }
 
     /// Instruct a model and return an iterator over the response.
@@ -230,7 +220,16 @@ impl Model {
         // Give the model the instruction as a chat message
         let mut chat = Chat::new();
         chat.add_message(ChatRole::User, instruction.to_string());
-        self.chat(&chat, &ChatRole::Model, think, seed, temp, top_p, repeat_penalty, repeat_last_n)
+        self.chat(
+            &chat,
+            &ChatRole::Model,
+            think,
+            seed,
+            temp,
+            top_p,
+            repeat_penalty,
+            repeat_last_n,
+        )
     }
 
     /// Predict the text which follows the given prompt.
@@ -243,15 +242,8 @@ impl Model {
         repeat_penalty: f32,
         repeat_last_n: usize,
     ) -> InferIter {
-        self.infer_iter(
-            prompt,
-            seed,
-            temp,
-            top_p,
-            repeat_penalty,
-            repeat_last_n,
-        )
-        .unwrap()
+        self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
+            .unwrap()
     }
 
     /// Generate a string similar to the given example strings.
@@ -460,41 +452,43 @@ impl Model {
             seed
         };
 
-        // Trim and lowercase all the items
-        let items: Vec<String> = items
-            .into_iter()
-            .map(|item| item.to_string().trim().to_lowercase())
-            .collect();
-
-        // Join the items into a comma-separated list
-        let items_string = format!("[\"{}\"]", items.join("\", \""));
-
         // Create the chat with the context, desired traits, and items
         let mut chat = Chat::new();
 
         // Set the system prompt to tell the model what its role should be
         chat.set_system_prompt(
-            "You are an assistant whose job is to help the user choose things from a list based on their given criteria.",
+            "You are a helpful assistant. Your job is to listen to the user's description of \
+            desired traits and choose the most appropriate item from item_list based on those traits.",
         );
+
+        // Trim and lowercase all the items
+        let items: Vec<_> = items
+            .into_iter()
+            .map(|item| JsonValue::String(item.to_string().trim().to_lowercase()))
+            .collect();
 
         // Set the item list in extra data
         chat.extra_data_mut()
-            .insert("List".to_string(), items_string.into());
+            .insert("item_list".to_string(), JsonValue::Array(items.clone()));
 
         // Add the user's messages with the desired traits and items
         chat.add_message(
             ChatRole::User,
             format!(
-                "Tell me which item or thing in List you would describe as \"{}\"?",
+                "Which item from item_list would you describe as \"{}\"?",
                 desired_traits
             ),
         );
 
         // Set the response prefix to end with a " so the model generates another "
-        chat.set_response_prefix(Some("The closest item in List is \"".to_string()));
+        chat.set_response_prefix(Some(
+            "Certainly! I think the item from item_list which most closely matches the traits you described is \"".to_string(),
+        ));
 
         // Create the prompt from the chat
-        let prompt = self.model_type.create_chat_prompt(&chat, &ChatRole::Model, false);
+        let prompt = self
+            .model_type
+            .create_chat_prompt(&chat, &ChatRole::Model, false);
 
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity
@@ -519,7 +513,7 @@ impl Model {
 
                     // Remove the item from the list if it doesn't begin with the inferred string
                     let formatted = inferred.trim().to_lowercase();
-                    possible_items.retain(|item| item.starts_with(&formatted));
+                    possible_items.retain(|item| item.as_str().unwrap().starts_with(&formatted));
                 }
                 // If there are no more tokens, empty the possible items and break
                 else {
@@ -539,7 +533,7 @@ impl Model {
         }
 
         // Return the response
-        response
+        response.map(|item| item.as_str().unwrap().to_string())
     }
 }
 

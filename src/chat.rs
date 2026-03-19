@@ -1,6 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
-use crate::{inference::InferValue, model::{self, Model}};
+use crate::model::{self, Model};
+use crate::prelude::{JsonMap, JsonValue};
 
 /// Represents a chat between user and model.
 #[derive(Clone, Debug)]
@@ -12,7 +13,7 @@ pub struct Chat {
     /// stored in long term memory. Injected into the system prompt.
     long_term_memory: Option<String>,
     /// Extra data associated with the chat.
-    extra_data: Option<HashMap<String, InferValue>>,
+    extra_data: Option<JsonMap<String, JsonValue>>,
     /// The messages in the chat.
     messages: Vec<ChatMessage>,
     /// The model's response is treated as if this text was prepended.
@@ -126,20 +127,20 @@ impl Chat {
     }
 
     /// Returns a reference to the extra data associated with the chat.
-    pub fn extra_data(&self) -> Option<&HashMap<String, InferValue>> {
+    pub fn extra_data(&self) -> Option<&JsonMap<String, JsonValue>> {
         self.extra_data.as_ref()
     }
 
     /// Returns a mutable reference to the extra data associated with the chat.
-    pub fn extra_data_mut(&mut self) -> &mut HashMap<String, InferValue> {
+    pub fn extra_data_mut(&mut self) -> &mut JsonMap<String, JsonValue> {
         if self.extra_data.is_none() {
-            self.extra_data = Some(HashMap::new());
+            self.extra_data = Some(JsonMap::new());
         }
         self.extra_data.as_mut().unwrap()
     }
 
     /// Replaces the extra data associated with the chat using the given map.
-    pub fn set_extra_data(&mut self, data: HashMap<String, InferValue>) {
+    pub fn set_extra_data(&mut self, data: JsonMap<String, JsonValue>) {
         self.extra_data = Some(data);
     }
 
@@ -167,7 +168,7 @@ impl Chat {
             total_tokens += (long_term_memory.len() as f64 * Self::TOKENS_PER_CHARACTER) as usize;
         }
         if let Some(extra_data) = &self.extra_data {
-            for (key, value) in extra_data {
+            for (key, value) in extra_data.iter() {
                 total_tokens += (key.len() as f64 * Self::TOKENS_PER_CHARACTER) as usize;
                 total_tokens +=
                     (format!("{:?}", value).len() as f64 * Self::TOKENS_PER_CHARACTER) as usize;
@@ -297,5 +298,5 @@ impl Display for ChatRole {
 pub enum ChatRole {
     User,
     Model,
-    Other(String)
+    Other(String),
 }
