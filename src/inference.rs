@@ -138,6 +138,41 @@ impl InferIter {
 
         (response, None)
     }
+
+    /// Run the iterator until the current bracket is closed and return everything up to that point as a `String`.
+    pub fn complete_bracket(&mut self, open_bracket: char, close_bracket: char) -> String {
+        let mut response = String::new();
+        let mut bracket_count = 0;
+        let mut in_string = false;
+        let mut escaped_last = false;
+        while let Some(token) = self.next_token() {
+            let token_str = self.tokens.model.detokenize(&[token]);
+            for c in token_str.chars() {
+                if c == '\\' && !escaped_last {
+                    escaped_last = true;
+                }
+                else {
+                    if c == '"' && !escaped_last {
+                        in_string = !in_string;
+                    }
+                    else if !in_string {
+                        if c == open_bracket {
+                            bracket_count += 1;
+                        }
+                        else if c == close_bracket {
+                            if bracket_count == 0 {
+                                return response;
+                            }
+                            bracket_count -= 1;
+                        }
+                    }
+                    escaped_last = false;
+                }
+                response.push(c);
+            }
+        }
+        response
+    }
 }
 
 impl Into<String> for InferIter {

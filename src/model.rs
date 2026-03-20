@@ -13,7 +13,7 @@ use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
 use crate::chat::{Chat, ChatRole};
-use crate::data::JsonValue;
+use crate::data::{JsonMap, JsonValue};
 use crate::inference::InferIter;
 use crate::model_type::ModelType;
 use crate::token_string::{IntoTokenString, TokenString};
@@ -421,13 +421,13 @@ impl Model {
         chat.add_message(
             ChatRole::User,
             format!(
-                "Please expand the following text with more detail: \"{}\"",
+                "Please rewrite and expand on the following passage of text so that it is longer, better-written, and more detailed:\n\"{}\"",
                 text
             ),
         );
 
         // Set the response prefix to avoid extra fluff
-        chat.set_response_prefix(Some("Here is the expanded text: \"".to_string()));
+        chat.set_response_prefix(Some("Certainly, here is the same text but longer and more detailed:\n\"".to_string()));
 
         self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 64)
             .complete(&["\"", "\n"])
@@ -492,7 +492,6 @@ impl Model {
 
         // Keep trying until the model chooses an item, incrementing the seed each time
         // After each attempt, temperature is increased to encourage diversity
-        let mut response = None;
         let mut temperature = temp;
         for seed in seed..seed + attempts as u64 {
             // Clone the items
@@ -524,17 +523,54 @@ impl Model {
 
             // If there is only one item left, return it
             if possible_items.len() == 1 {
-                response = Some(possible_items.pop().unwrap());
-                break;
+                return Some(possible_items.pop().unwrap().as_str().unwrap().to_string());
             }
 
             // Raise the temperature and try again
-            temperature += 0.1;
+            nudge_temperature(&mut temperature);
         }
 
         // Return the response
-        response.map(|item| item.as_str().unwrap().to_string())
+        None
     }
+
+    /// Ask the model a question about a JSON object.
+    pub fn ask_json(&self, json: JsonValue, question: &str) -> InferIter {
+        // Create a chat with the JSON object as extra data
+        let mut chat = Chat::new();
+        chat.set_system_prompt("You are a helpful assistant and Javascript programmer who answers questions about the JSON object `json_object`.");
+        chat.extra_data_mut().insert("json_object".to_string(), json);
+        chat.add_message(ChatRole::User, question.to_string());
+
+        self.chat(&chat, &ChatRole::Model, false, 0, None, None, 1.0, 0)
+    }
+
+    /// Ask the model to edit the given JSON object according to the provided instruction.
+    /// Tries to generate a new JSON object based on the provided instruction for `attempts` times.
+    pub fn edit_json(&self, json: JsonValue, instruction: &str, seed: u64, temp: f64, attempts: usize) -> Option<JsonValue> {
+        // Create a chat with the JSON object as extra data
+        let mut chat = Chat::new();
+        chat.set_system_prompt("You are a helpful assistant and Javascript programmer who is helping user with JSON.");
+        chat.extra_data_mut().insert("json_object".to_string(), json);
+        chat.add_message(ChatRole::User, format!("Please make the following changes to the JSON Object `json_object`:\n{}", instruction));
+        chat.set_response_prefix(Some("Sure, here are my changes to `json_object` as you requested:\n{".to_string()));
+
+
+        let mut temperature = temp;
+        for attempt in 0..attempts {
+            let response = format!(
+                "{{{}}}",
+                self.chat(&chat, &ChatRole::Model, false, seed.wrapping_add(attempt as u64), Some(temperature), None, 1.0, 0)
+                .complete_bracket('{', '}')
+            );
+            if let Ok(json) = serde_json::from_str::<JsonValue>(&response) {
+                return Some(json);
+            }
+            nudge_temperature(&mut temperature);
+        }
+        None
+    }
+
 }
 
 /// Contains a pipeline, could be one of multiple types.
@@ -573,4 +609,10 @@ impl DynConfig {
             _ => None,
         }
     }
+}
+
+/// Nudge a temperature value towards 1.0 without ever reaching it.
+/// Useful for iterative tasks.
+fn nudge_temperature(temp: &mut f64) {
+    *temp += (1.0 - *temp) * 0.15;
 }

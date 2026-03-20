@@ -173,7 +173,7 @@ impl ModelType {
         if let Some(extra_data) = chat.extra_data() {
             prompt.push_str(&format!(
                 "<notes>\n{}\n</notes>\n",
-                serde_json::to_string(extra_data).unwrap()
+                serde_json::to_string_pretty(extra_data).unwrap()
             ));
         }
 

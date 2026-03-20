@@ -11,6 +11,7 @@ mod tests {
     use std::io::Write;
 
     use ggmath::random::ToSeed;
+    use serde_json::json;
 
     use crate::prelude::*;
 
@@ -63,7 +64,7 @@ mod tests {
         const ATTEMPTS: usize = 7;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         // Present choices to the model
         let item = model.try_choose_item(
@@ -145,12 +146,12 @@ mod tests {
         const TEMP: f64 = 0.0;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen25Instruct, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         let text = "Sally told me she saw that dang fox jump over the poor lazy dog again. A travesty, really.";
 
         // Expand the text
-        let expanded = model.expand(model.expand(text, SEED, Some(TEMP)), SEED, Some(TEMP));
+        let expanded = model.expand(text, SEED, Some(TEMP));
         println!("\nExpanded text: {}", expanded);
 
         // Summarize the text
@@ -312,5 +313,48 @@ mod tests {
         let rest = parts.get(1).unwrap_or(&"").trim_start();
 
         println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts, rest);
+    }
+
+    #[test]
+    fn ask_json() {
+        const SEED: u64 = 3463;
+        const TEMP: f64 = 0.0;
+
+        // Create the model
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+
+        // Create a JSON object
+        let json = json!({
+            "name": "Alice",
+            "pets": [
+                {"type": "cat", "name": "Whiskers", "age": 3},
+                {"type": "dog", "name": "Fido", "age": 8},
+                {"type": "dog", "name": "Rex", "age": 5},
+            ],
+        });
+
+        // Ask the model a question about the JSON object
+        let result = model.ask_json(json.clone(), "What is the name and age of Alice's oldest pet?").complete(&[]).0;
+        println!("Result:\n{}\n", result);
+
+        // Ask the model to add a new pet to Alice's list of pets
+        let json = model.edit_json(
+            json,
+            "Add a new 3-year old parakeet named \"Crackers\" to Alice's list of pets",
+            SEED,
+            TEMP,
+            3
+        ).expect("Failed to parse JSON");
+
+        // Ask the model to double the age of all dogs
+        let json = model.edit_json(
+            json,
+            "Please double the age of all of Alice's dogs",
+            SEED,
+            TEMP,
+            3
+        ).expect("Failed to parse JSON");
+        
+        println!("Edited JSON:\n{}\n", serde_json::to_string_pretty(&json).unwrap());
     }
 }
