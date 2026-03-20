@@ -337,7 +337,7 @@ mod tests {
         let result = model
             .ask_json(
                 json.clone(),
-                "What is the name and age of Alice's oldest pet?",
+                "What is the name and age of Alice's cat?",
             )
             .complete(&[])
             .0;
@@ -347,7 +347,7 @@ mod tests {
         let json = model
             .edit_json(
                 json,
-                "Add a new 3-year old parakeet named \"Crackers\" to Alice's list of pets",
+                "Add a new 3-year old parakeet named \"Crackers\" to the list of pets",
                 SEED,
                 TEMP,
                 3,
@@ -358,7 +358,7 @@ mod tests {
         let json = model
             .edit_json(
                 json,
-                "Please double the age of all of Alice's dogs",
+                "Please double the age of every cat in \"pets\"",
                 SEED,
                 TEMP,
                 3,

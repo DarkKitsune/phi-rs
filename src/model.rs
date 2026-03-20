@@ -538,11 +538,16 @@ impl Model {
 
     /// Ask the model a question about a JSON object.
     pub fn ask_json(&self, json: JsonValue, question: &str) -> InferIter {
-        // Create a chat with the JSON object as extra data
+        // Create a chat with the JSON object in the system prompt rather than extra data.
+        // This is because extra data may be expressed to the model in JSON format already.
         let mut chat = Chat::new();
-        chat.set_system_prompt("You are a helpful assistant and Javascript programmer who answers questions about the JSON object `json_object`.");
-        chat.extra_data_mut()
-            .insert("json_object".to_string(), json);
+        chat.set_system_prompt(
+            format!(
+                "You are a helpful assistant and Javascript programmer who answers questions about \
+                the following JSON:\n{}",
+                serde_json::to_string_pretty(&json).unwrap()
+            )
+        );
         chat.add_message(ChatRole::User, question.to_string());
 
         self.chat(&chat, &ChatRole::Model, false, 0, None, None, 1.0, 0)
@@ -558,22 +563,25 @@ impl Model {
         temp: f64,
         attempts: usize,
     ) -> Option<JsonValue> {
-        // Create a chat with the JSON object as extra data
+        // Create a chat with the JSON object in the system prompt rather than extra data.
+        // This is because extra data may be expressed to the model in JSON format already.
         let mut chat = Chat::new();
         chat.set_system_prompt(
-            "You are a helpful assistant and Javascript programmer who is helping user with JSON.",
+            format!(
+                "You are a helpful assistant and Javascript programmer who is helping the user with \
+                the following JSON:\n{}",
+                serde_json::to_string_pretty(&json).unwrap()
+            )
         );
-        chat.extra_data_mut()
-            .insert("json_object".to_string(), json);
         chat.add_message(
             ChatRole::User,
             format!(
-                "Please make the following changes to the JSON Object `json_object`:\n{}",
+                "Please make the following changes to the above JSON:\n{}",
                 instruction
             ),
         );
         chat.set_response_prefix(Some(
-            "Sure, here are my changes to `json_object` as you requested:\n{".to_string(),
+            "Sure, here is the modified JSON as you requested:\n{".to_string(),
         ));
 
         let mut temperature = temp;
