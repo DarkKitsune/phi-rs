@@ -334,27 +334,40 @@ mod tests {
         });
 
         // Ask the model a question about the JSON object
-        let result = model.ask_json(json.clone(), "What is the name and age of Alice's oldest pet?").complete(&[]).0;
+        let result = model
+            .ask_json(
+                json.clone(),
+                "What is the name and age of Alice's oldest pet?",
+            )
+            .complete(&[])
+            .0;
         println!("Result:\n{}\n", result);
 
         // Ask the model to add a new pet to Alice's list of pets
-        let json = model.edit_json(
-            json,
-            "Add a new 3-year old parakeet named \"Crackers\" to Alice's list of pets",
-            SEED,
-            TEMP,
-            3
-        ).expect("Failed to parse JSON");
+        let json = model
+            .edit_json(
+                json,
+                "Add a new 3-year old parakeet named \"Crackers\" to Alice's list of pets",
+                SEED,
+                TEMP,
+                3,
+            )
+            .expect("Failed to parse JSON");
 
         // Ask the model to double the age of all dogs
-        let json = model.edit_json(
-            json,
-            "Please double the age of all of Alice's dogs",
-            SEED,
-            TEMP,
-            3
-        ).expect("Failed to parse JSON");
-        
-        println!("Edited JSON:\n{}\n", serde_json::to_string_pretty(&json).unwrap());
+        let json = model
+            .edit_json(
+                json,
+                "Please double the age of all of Alice's dogs",
+                SEED,
+                TEMP,
+                3,
+            )
+            .expect("Failed to parse JSON");
+
+        println!(
+            "Edited JSON:\n{}\n",
+            serde_json::to_string_pretty(&json).unwrap()
+        );
     }
 }

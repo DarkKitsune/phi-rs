@@ -150,16 +150,13 @@ impl InferIter {
             for c in token_str.chars() {
                 if c == '\\' && !escaped_last {
                     escaped_last = true;
-                }
-                else {
+                } else {
                     if c == '"' && !escaped_last {
                         in_string = !in_string;
-                    }
-                    else if !in_string {
+                    } else if !in_string {
                         if c == open_bracket {
                             bracket_count += 1;
-                        }
-                        else if c == close_bracket {
+                        } else if c == close_bracket {
                             if bracket_count == 0 {
                                 return response;
                             }

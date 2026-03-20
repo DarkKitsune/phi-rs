@@ -13,7 +13,7 @@ use hf_hub::api::sync::Api;
 use tokenizers::Tokenizer;
 
 use crate::chat::{Chat, ChatRole};
-use crate::data::{JsonMap, JsonValue};
+use crate::data::JsonValue;
 use crate::inference::InferIter;
 use crate::model_type::ModelType;
 use crate::token_string::{IntoTokenString, TokenString};
@@ -427,7 +427,9 @@ impl Model {
         );
 
         // Set the response prefix to avoid extra fluff
-        chat.set_response_prefix(Some("Certainly, here is the same text but longer and more detailed:\n\"".to_string()));
+        chat.set_response_prefix(Some(
+            "Certainly, here is the same text but longer and more detailed:\n\"".to_string(),
+        ));
 
         self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 64)
             .complete(&["\"", "\n"])
@@ -539,7 +541,8 @@ impl Model {
         // Create a chat with the JSON object as extra data
         let mut chat = Chat::new();
         chat.set_system_prompt("You are a helpful assistant and Javascript programmer who answers questions about the JSON object `json_object`.");
-        chat.extra_data_mut().insert("json_object".to_string(), json);
+        chat.extra_data_mut()
+            .insert("json_object".to_string(), json);
         chat.add_message(ChatRole::User, question.to_string());
 
         self.chat(&chat, &ChatRole::Model, false, 0, None, None, 1.0, 0)
@@ -547,20 +550,46 @@ impl Model {
 
     /// Ask the model to edit the given JSON object according to the provided instruction.
     /// Tries to generate a new JSON object based on the provided instruction for `attempts` times.
-    pub fn edit_json(&self, json: JsonValue, instruction: &str, seed: u64, temp: f64, attempts: usize) -> Option<JsonValue> {
+    pub fn edit_json(
+        &self,
+        json: JsonValue,
+        instruction: &str,
+        seed: u64,
+        temp: f64,
+        attempts: usize,
+    ) -> Option<JsonValue> {
         // Create a chat with the JSON object as extra data
         let mut chat = Chat::new();
-        chat.set_system_prompt("You are a helpful assistant and Javascript programmer who is helping user with JSON.");
-        chat.extra_data_mut().insert("json_object".to_string(), json);
-        chat.add_message(ChatRole::User, format!("Please make the following changes to the JSON Object `json_object`:\n{}", instruction));
-        chat.set_response_prefix(Some("Sure, here are my changes to `json_object` as you requested:\n{".to_string()));
-
+        chat.set_system_prompt(
+            "You are a helpful assistant and Javascript programmer who is helping user with JSON.",
+        );
+        chat.extra_data_mut()
+            .insert("json_object".to_string(), json);
+        chat.add_message(
+            ChatRole::User,
+            format!(
+                "Please make the following changes to the JSON Object `json_object`:\n{}",
+                instruction
+            ),
+        );
+        chat.set_response_prefix(Some(
+            "Sure, here are my changes to `json_object` as you requested:\n{".to_string(),
+        ));
 
         let mut temperature = temp;
         for attempt in 0..attempts {
             let response = format!(
                 "{{{}}}",
-                self.chat(&chat, &ChatRole::Model, false, seed.wrapping_add(attempt as u64), Some(temperature), None, 1.0, 0)
+                self.chat(
+                    &chat,
+                    &ChatRole::Model,
+                    false,
+                    seed.wrapping_add(attempt as u64),
+                    Some(temperature),
+                    None,
+                    1.0,
+                    0
+                )
                 .complete_bracket('{', '}')
             );
             if let Ok(json) = serde_json::from_str::<JsonValue>(&response) {
@@ -570,7 +599,6 @@ impl Model {
         }
         None
     }
-
 }
 
 /// Contains a pipeline, could be one of multiple types.
