@@ -71,7 +71,7 @@ mod tests {
             "a weapon for a knight",
             ["horse", "sword", "potion", "compass", "bow", "shield"],
             SEED,
-            0.0,
+            None,
             ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
@@ -80,7 +80,7 @@ mod tests {
             "a soft toy",
             ["snacks", "ball", "coloring book", "stuffed animal", "book"],
             SEED,
-            0.0,
+            None,
             ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
@@ -98,7 +98,7 @@ mod tests {
                 "pineapple",
             ],
             SEED,
-            0.0,
+            None,
             ATTEMPTS,
         );
         println!("Chose item: {:?}", item);
@@ -179,6 +179,22 @@ mod tests {
                 .0,
         );
         println!("Completed text: {}", text);
+    }
+
+    #[test]
+    fn predict_chain() {
+        const SEED: u64 = 13579;
+        const TEMP: f64 = 0.7;
+        const TEMPLATE: &str = "There once was a man named {} who lived in {}.";
+
+        // Create the model
+        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+
+        let (generated, full_text) = model.predict_chain(TEMPLATE, SEED, Some(TEMP), None, 1.0, 0);
+        for (i, text) in generated.iter().enumerate() {
+            println!("Generated text {}: {}", i, text);
+        }
+        println!("Full text: {}", full_text);
     }
 
     #[test]
@@ -317,8 +333,7 @@ mod tests {
 
     #[test]
     fn ask_json() {
-        const SEED: u64 = 3463;
-        const TEMP: f64 = 0.0;
+        const SEED: u64 = 635681;
 
         // Create the model
         let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
@@ -335,13 +350,14 @@ mod tests {
 
         // Ask the model a question about the JSON object
         let result = model
-            .ask_json(
-                json.clone(),
-                "What is the name and age of Alice's cat?",
-            )
+            .ask_json(json.clone(), "What is the name and age of Alice's cat?")
             .complete(&[])
             .0;
-        println!("Result:\n{}\n", result);
+
+        println!(
+            "What is the name and age of Alice's cat?\nResult:\n{}\n",
+            result
+        );
 
         // Ask the model to add a new pet to Alice's list of pets
         let json = model
@@ -349,25 +365,25 @@ mod tests {
                 json,
                 "Add a new 3-year old parakeet named \"Crackers\" to the list of pets",
                 SEED,
-                TEMP,
-                3,
-            )
-            .expect("Failed to parse JSON");
-
-        // Ask the model to double the age of all dogs
-        let json = model
-            .edit_json(
-                json,
-                "Please double the age of every cat in \"pets\"",
-                SEED,
-                TEMP,
+                None,
                 3,
             )
             .expect("Failed to parse JSON");
 
         println!(
-            "Edited JSON:\n{}\n",
+            "JSON with parakeet added:\n{}\n",
             serde_json::to_string_pretty(&json).unwrap()
+        );
+
+        // Ask the model how many birds are in Alice's list of pets
+        let result = model
+            .ask_json(json.clone(), "How many birds are in Alice's list of pets?")
+            .complete(&[])
+            .0;
+
+        println!(
+            "How many birds are in Alice's list of pets?\nResult:\n{}\n",
+            result
         );
     }
 }
