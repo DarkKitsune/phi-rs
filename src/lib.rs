@@ -146,7 +146,7 @@ mod tests {
         const TEMP: f64 = 0.0;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Vl, SEED, true).unwrap();
 
         let text = "Sally told me she saw that dang fox jump over the poor lazy dog again. A travesty, really.";
 
@@ -261,19 +261,24 @@ mod tests {
         let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         // Give the model a simple problem to think about
-        let result = model
-            .instruct("If a train leaves Station A at 60 mph and another leaves Station B 100 miles away at 40 mph towards each other, when do they meet?", true, SEED, Some(TEMP), None, 1.0, 0)
+        let (result, thoughts) = model
+            .instruct(
+                "If a train leaves Station A at 60 mph and another leaves Station B 100 \
+                miles away at 40 mph towards each other, when do they meet?",
+                true,
+                SEED,
+                Some(TEMP),
+                None,
+                1.0,
+                0,
+            );
+        let result = result
             .complete(&[])
             .0
             .trim()
             .to_string();
 
-        // Parse everything before and after the </think> closing tag
-        let parts: Vec<&str> = result.split("</think>").collect();
-        let thoughts = parts.get(0).unwrap_or(&"").trim_end();
-        let rest = parts.get(1).unwrap_or(&"").trim_start();
-
-        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts, rest);
+        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts.unwrap_or_default(), result);
     }
 
     #[test]
@@ -285,7 +290,7 @@ mod tests {
         let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
 
         // Give the model a literary analysis problem to think about
-        let result = model
+        let (result, thoughts) = model
             .instruct(
                 "Analyze the following poem and explain its themes:\n\
                 Two roads diverged in a yellow wood,\n\
@@ -317,18 +322,14 @@ mod tests {
                 None,
                 1.0,
                 0,
-            )
-            .complete(&[])
-            .0
-            .trim()
-            .to_string();
+            );
+            let result = result
+                .complete(&[])
+                .0
+                .trim()
+                .to_string();
 
-        // Parse everything before and after the </think> closing tag
-        let parts: Vec<&str> = result.split("</think>").collect();
-        let thoughts = parts.get(0).unwrap_or(&"").trim_end();
-        let rest = parts.get(1).unwrap_or(&"").trim_start();
-
-        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts, rest);
+        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts.unwrap_or_default(), result);
     }
 
     #[test]

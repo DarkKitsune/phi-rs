@@ -65,6 +65,7 @@ impl Chat {
     }
 
     /// Infer a new chat message using the model and push it to the chat.
+    /// Optionally returns the thoughts of the model if `think` is true.
     pub fn infer_message(
         &mut self,
         sender: &ChatRole,
@@ -75,14 +76,19 @@ impl Chat {
         repeat_penalty: f32,
         repeat_last_n: usize,
         ignore_end_sequences: bool,
-    ) {
+    ) -> Option<String> {
         // If token count exceeds the compress threshold, compress the chat first
         if self.estimate_total_tokens() > Self::COMPRESS_THRESHOLD {
             self.compress(model);
         }
 
+        // TODO: Temporary fix for some models generating multiple responses with newlines
+        // between instead of generating <|endoftext|> or <|im_end|> (in my testing).
+        // This should be investigated further.
         let end_sequences: &[&str] = if ignore_end_sequences { &[] } else { &["\n\n"] };
-        let response = model
+
+        // Infer the response and thoughts from the model
+        let (response, thoughts) = model
             .chat(
                 self,
                 sender,
@@ -92,11 +98,18 @@ impl Chat {
                 None,
                 repeat_penalty,
                 repeat_last_n,
-            )
+            );
+        
+        // Get the complete response
+        let response = response
             .complete(end_sequences)
             .0;
 
+        // Add the generated response to the chat as a new message
         self.add_message(sender.clone(), response);
+
+        // Return the thoughts of the model, if any
+        thoughts
     }
 
     /// Returns a reference to the messages in the chat.

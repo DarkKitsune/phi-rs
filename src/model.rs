@@ -4,6 +4,7 @@ use anyhow::{Error as E, Result};
 
 use candle_transformers::models::qwen2::{Config as Qwen2Config, ModelForCausalLM as Qwen2};
 use candle_transformers::models::qwen3::{Config as Qwen3Config, ModelForCausalLM as Qwen3};
+use candle_transformers::models::qwen3_vl::{Config as Qwen3VlConfig, Qwen3VLModel as Qwen3Vl};
 
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -174,6 +175,8 @@ impl Model {
     }
 
     /// Generate a response message based on the chat history.
+    /// Returns an iterator over the generated response, and if thinking,
+    /// then also returns the thoughts as a string.
     pub fn chat(
         &self,
         chat: &Chat,
@@ -184,7 +187,7 @@ impl Model {
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
-    ) -> InferIter {
+    ) -> (InferIter, Option<String>) {
         const THINK_TEMP_MULTIPLIER: f64 = 0.85;
 
         // Panic if the model type does not support chat
@@ -199,14 +202,42 @@ impl Model {
             temp
         };
 
-        // Generate the basic chat prompt
-        let prompt = self.model_type.create_chat_prompt(chat, sender, think);
+        // Create the basic chat prompt
+        let mut prompt = self.model_type.create_chat_prompt(chat, sender, think);
 
-        self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
-            .unwrap()
+        // If thinking then infer the contents of the think block and close it with </think>
+        let mut thoughts = None;
+        if think && self.model_type.can_think() {
+            // First, infer the contents of the think block and store the result in `thoughts`
+            thoughts = Some(
+                self.infer_iter(&prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
+                    .unwrap()
+                    .complete(&["</think>"])
+                    .0
+            );
+
+            // Then append the thoughts to the prompt and close the think block
+            prompt.push_str(thoughts.as_ref().unwrap());
+            prompt.push_str("</think>");
+        }
+
+        // If we have a response prefix then append said prefix
+        if let Some(prefix) = chat.response_prefix() {
+            // Append the response prefix to the prompt
+            prompt.push_str(prefix);
+        }
+
+        // Return the iterator over the generated response, as well as the thoughts (if any)
+        (
+            self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
+                .unwrap(),
+            thoughts
+        )
     }
 
-    /// Instruct a model and return an iterator over the response.
+    /// Instruct the model to do something, or generate/analyze text.
+    /// Returns an iterator over the model's response to the instruction, and if thinking,
+    /// then also returns the thoughts as a string.
     pub fn instruct(
         &self,
         instruction: impl Display,
@@ -216,7 +247,7 @@ impl Model {
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
-    ) -> InferIter {
+    ) -> (InferIter, Option<String>) {
         // Give the model the instruction as a chat message
         let mut chat = Chat::new();
         chat.add_message(ChatRole::User, instruction.to_string());
@@ -365,6 +396,7 @@ impl Model {
         chat.set_response_prefix(Some("Here's an example like you described: [".to_string()));
 
         self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 128)
+            .0
             .complete(&["]", "\n"])
             .0
     }
@@ -391,6 +423,7 @@ impl Model {
         ));
 
         self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.0, 0)
+            .0
             .complete(&["\"", "\n"])
             .0
     }
@@ -489,6 +522,7 @@ impl Model {
         ));
 
         self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 64)
+            .0
             .complete(&["\"", "\n"])
             .0
     }
@@ -606,6 +640,7 @@ impl Model {
         chat.add_message(ChatRole::User, question.to_string());
 
         self.chat(&chat, &ChatRole::Model, false, 0, None, None, 1.0, 0)
+            .0
     }
 
     /// Ask the model to edit the given JSON object according to the provided instruction.
@@ -651,6 +686,7 @@ impl Model {
                     1.0,
                     0
                 )
+                .0
                 .complete_bracket('{', '}')
             );
             if let Ok(json) = serde_json::from_str::<JsonValue>(&response) {
@@ -666,13 +702,25 @@ impl Model {
 pub enum Pipeline {
     Qwen2(Qwen2),
     Qwen3(Qwen3),
+    Qwen3Vl(Qwen3Vl),
 }
 
 impl Pipeline {
-    pub fn forward(&mut self, xs: &Tensor, start_pos: usize) -> Tensor {
+    pub fn forward(&mut self, xs: &Tensor, start_pos: usize, seq_len: usize) -> Tensor {
         match self {
             Pipeline::Qwen2(qwen2) => qwen2.forward(xs, start_pos).unwrap(),
             Pipeline::Qwen3(qwen3) => qwen3.forward(xs, start_pos).unwrap(),
+            Pipeline::Qwen3Vl(qwen3_vl) => qwen3_vl.forward(
+                xs,
+                None,
+                None,
+                None,
+                None,
+                vec![seq_len],
+                vec![],
+                vec![],
+                &[start_pos]
+            ).unwrap(),
         }
     }
 }
@@ -682,6 +730,7 @@ impl Pipeline {
 pub enum DynConfig {
     Qwen2(Qwen2Config),
     Qwen3(Qwen3Config),
+    Qwen3Vl(Qwen3VlConfig),
 }
 
 impl DynConfig {
@@ -695,6 +744,12 @@ impl DynConfig {
     pub fn as_qwen3(&self) -> Option<&Qwen3Config> {
         match self {
             DynConfig::Qwen3(config) => Some(config),
+            _ => None,
+        }
+    }
+    pub fn as_qwen3_vl(&self) -> Option<&Qwen3VlConfig> {
+        match self {
+            DynConfig::Qwen3Vl(config) => Some(config),
             _ => None,
         }
     }

@@ -69,7 +69,7 @@ impl InferIter {
             .unwrap();
 
         // Forward the input through the pipeline
-        let logits = self.pipeline.forward(&input, start_pos);
+        let logits = self.pipeline.forward(&input, start_pos, context.len());
 
         // Preprocess the logits for this model type
         let logits = self.model_type.process_logits(logits);
