@@ -1,9 +1,11 @@
+use std::path::PathBuf;
+
 use candle_core::{DType, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::qwen2::ModelForCausalLM as Qwen2;
 use candle_transformers::models::qwen3::ModelForCausalLM as Qwen3;
 use candle_transformers::models::qwen3_vl::Qwen3VLModel as Qwen3Vl;
-use hf_hub::api::sync::ApiRepo;
+use hf_hub::api::sync::Api;
 
 use crate::chat::{Chat, ChatRole};
 use crate::model::{DynConfig, Pipeline};
@@ -13,6 +15,7 @@ use crate::model::{DynConfig, Pipeline};
 pub enum ModelType {
     Qwen25Instruct,
     Qwen3,
+    Qwen3Special,
     Qwen3Vl,
 }
 
@@ -20,21 +23,21 @@ impl ModelType {
     /// Returns true if this model type supports chat functionality.
     pub fn can_chat(&self) -> bool {
         match self {
-            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Vl => true,
+            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
         }
     }
 
     /// Returns true if this model type supports "thinking" functionality.
     pub fn can_think(&self) -> bool {
         match self {
-            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Vl => true,
+            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
         }
     }
 
     /// Returns true if this model requires the think tag to be present regardless.
     pub fn must_think(&self) -> bool {
         match self {
-            ModelType::Qwen3 | ModelType::Qwen3Vl => true,
+            ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
             _ => false,
         }
     }
@@ -42,24 +45,26 @@ impl ModelType {
     /// Returns true if this model needs "/think " in the prompt to enable thinking.
     pub fn use_think_in_prompt(&self) -> bool {
         match self {
-            ModelType::Qwen3 | ModelType::Qwen3Vl => true,
+            ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
             _ => false,
         }
     }
 
-    pub fn model_repo(&self) -> &'static str {
+    pub fn model_repo(&self) -> ModelRepo {
         match self {
-            ModelType::Qwen25Instruct => "Qwen/Qwen2.5-1.5B-Instruct",
-            ModelType::Qwen3 => "Qwen/Qwen3-1.7B",
-            ModelType::Qwen3Vl => "Qwen/Qwen3-VL-2B-Instruct",
+            ModelType::Qwen25Instruct => ModelRepo::Hub("Qwen/Qwen2.5-1.5B-Instruct".to_string()),
+            ModelType::Qwen3 => ModelRepo::Hub("Qwen/Qwen3-1.7B".to_string()),
+            ModelType::Qwen3Vl => ModelRepo::Hub("Qwen/Qwen3-VL-2B-Instruct".to_string()),
+            ModelType::Qwen3Special => ModelRepo::Local("./model/qwen3-special-1.7b".to_string()),
         }
     }
 
-    pub fn tokenizer_repo(&self) -> &'static str {
+    pub fn tokenizer_repo(&self) -> ModelRepo {
         match self {
-            ModelType::Qwen25Instruct => "Qwen/Qwen2.5-1.5B-Instruct",
-            ModelType::Qwen3 => "Qwen/Qwen3-1.7B",
-            ModelType::Qwen3Vl => "Qwen/Qwen3-VL-2B-Instruct",
+            ModelType::Qwen25Instruct => ModelRepo::Hub("Qwen/Qwen2.5-1.5B-Instruct".to_string()),
+            ModelType::Qwen3 => ModelRepo::Hub("Qwen/Qwen3-1.7B".to_string()),
+            ModelType::Qwen3Vl => ModelRepo::Hub("Qwen/Qwen3-VL-2B-Instruct".to_string()),
+            ModelType::Qwen3Special => ModelRepo::Local("./model/qwen3-special-1.7b".to_string()),
         }
     }
 
@@ -80,23 +85,19 @@ impl ModelType {
     }
 
     /// Load and create a config for this type of model.
-    pub fn create_config(&self, repo: &ApiRepo) -> DynConfig {
+    pub fn create_config(&self, repo: &ModelRepo, api: &Api) -> DynConfig {
+        let config_filename = repo.file_paths(&["config.json"], api).pop().unwrap();
+        let config = std::fs::read_to_string(config_filename).unwrap();
         match self {
             ModelType::Qwen25Instruct => {
-                let config_filename = repo.get("config.json").unwrap();
-                let config = std::fs::read_to_string(config_filename).unwrap();
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen2(config)
             }
-            ModelType::Qwen3 => {
-                let config_filename = repo.get("config.json").unwrap();
-                let config = std::fs::read_to_string(config_filename).unwrap();
+            ModelType::Qwen3 | ModelType::Qwen3Special => {
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen3(config)
             }
             ModelType::Qwen3Vl => {
-                let config_filename = repo.get("config.json").unwrap();
-                let config = std::fs::read_to_string(config_filename).unwrap();
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen3Vl(config)
             }
@@ -110,7 +111,7 @@ impl ModelType {
             ModelType::Qwen25Instruct => {
                 Pipeline::Qwen2(Qwen2::new(config.as_qwen2().unwrap(), var).unwrap())
             }
-            ModelType::Qwen3 => {
+            ModelType::Qwen3 | ModelType::Qwen3Special => {
                 Pipeline::Qwen3(Qwen3::new(config.as_qwen3().unwrap(), var).unwrap())
             }
             ModelType::Qwen3Vl => {
@@ -122,7 +123,7 @@ impl ModelType {
     /// Preprocesses the logits for this model type.
     pub fn process_logits(&self, logits: Tensor) -> Tensor {
         match self {
-            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Vl => {
+            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => {
                 // Process logits for Qwen3 model
                 logits
                     .squeeze(0)
@@ -247,6 +248,28 @@ impl ModelType {
                 ChatRole::User => "user",
                 ChatRole::Other(name) => name,
             },
+        }
+    }
+}
+
+/// Represents a model repo, either remote on HuggingFace or local
+pub enum ModelRepo {
+    Hub(String),
+    Local(String),
+}
+
+impl ModelRepo {
+    pub fn file_paths(&self, file_names: &[&str], api: &Api) -> Vec<PathBuf> {
+        match self {
+            ModelRepo::Hub(repo) => {
+                let api_repo = api.model(repo.clone());
+                file_names
+                    .iter()
+                    .map(|&file_name| api_repo.get(file_name).unwrap_or_else(|e| panic!("Failed to get file {} from {}: {}", file_name, repo, e))).collect()
+            },
+            ModelRepo::Local(path) => {
+                file_names.iter().map(|&file_name| PathBuf::from(path).join(file_name)).collect()
+            }
         }
     }
 }

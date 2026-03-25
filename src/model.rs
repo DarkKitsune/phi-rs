@@ -39,20 +39,22 @@ impl Model {
         } else {
             Device::Cpu
         };
+
+        // Get the model repos
         let api = Api::new()?;
-        let tokenizer_repo = api.model(model_type.tokenizer_repo().to_string());
-        let model_repo = api.model(model_type.model_repo().to_string());
+        let model_repo = model_type.model_repo();
+        let tokenizer_repo = model_type.tokenizer_repo();
 
         // Create model config
-        let config = model_type.create_config(&model_repo);
+        let config = model_type.create_config(&model_repo, &api);
 
         // Get the tokenizer and model files
-        let tokenizer_filename = tokenizer_repo.get(model_type.tokenizer_json_name())?;
+        let tokenizer_filename = tokenizer_repo.file_paths(&[model_type.tokenizer_json_name()], &api).pop().unwrap();
         let model_filenames = model_type
             .model_names()
             .iter()
-            .map(|name| model_repo.get(name))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|name| model_repo.file_paths(&[name], &api).pop().unwrap())
+            .collect::<Vec<_>>();
 
         // Create VarBuilder
         let vb =
@@ -403,12 +405,13 @@ impl Model {
 
     /// Summarize a string using the model.
     pub fn summarize(&self, text: impl AsRef<str>, seed: u64, temp: Option<f64>) -> String {
-        let text = text.as_ref();
+        let text = text.as_ref().trim();
         let mut chat = Chat::new();
 
         // Set the system prompt to tell the model what its role should be
         chat.set_system_prompt(
-            "You are an assistant whose job is to summarize text provided by the user. Keep it brief and concise, and wrap your summary in double quotes.",
+            "You are an assistant whose job is to summarize text provided by the user. \
+            Keep it brief and concise and wrap in double quotes.",
         );
 
         // Add a user message asking the model to summarize the text
@@ -419,12 +422,12 @@ impl Model {
 
         // Set the response prefix to avoid extra fluff
         chat.set_response_prefix(Some(
-            "Certainly, here is my summary of the text you provided:\n\"".to_string(),
+            "Certainly, here is my summary of the text you provided!\nSummary:\"\n".to_string(),
         ));
 
         self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.0, 0)
             .0
-            .complete(&["\"", "\n"])
+            .complete(&["\"", "\n\n"])
             .0
     }
 
@@ -504,14 +507,14 @@ impl Model {
 
         // Set the system prompt to tell the model what its role should be
         chat.set_system_prompt(
-            "You are an assistant whose job is to expand text provided by the user with more detail.",
+            "You are an assistant whose job is to rewrit and expand on passages of text.",
         );
 
         // Add a user message asking the model to expand the text
         chat.add_message(
             ChatRole::User,
             format!(
-                "Please rewrite and expand on the following passage of text so that it is longer, better-written, and more detailed:\n\"{}\"",
+                "Please rewrite the following passage of text so that it is longer, more detailed, and more descriptive:\n\"{}\"",
                 text
             ),
         );

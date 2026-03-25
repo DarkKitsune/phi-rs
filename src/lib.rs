@@ -18,11 +18,11 @@ mod tests {
     #[test]
     fn chat() {
         const SEED: u64 = 477474;
-        const TEMP: f64 = 0.7;
+        const TEMP: f64 = 0.6;
         const CONVERSATION_TURNS: usize = 14;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Start a chat
         let mut chat = Chat::new();
@@ -50,8 +50,8 @@ mod tests {
                 false,
                 SEED.wrapping_add(turn as u64),
                 Some(TEMP),
-                1.0,
-                0,
+                1.1,
+                64,
                 false,
             );
             println!("\n{}\n", chat.last_message().unwrap());
@@ -64,7 +64,7 @@ mod tests {
         const ATTEMPTS: usize = 7;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Present choices to the model
         let item = model.try_choose_item(
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn generate_dog_sentences() {
         const SEED: u64 = 246810;
-        const TEMP: f64 = 0.7;
+        const TEMP: f64 = 0.6;
         const NUM_TO_GENERATE: usize = 7;
         const DOG_EXAMPLES: &[&str] = &[
             "The quick brown fox jumps over the lazy dog.",
@@ -142,30 +142,31 @@ mod tests {
 
     #[test]
     fn expand_and_summarize() {
-        const SEED: u64 = 13579;
+        const SEED: u64 = 75863;
         const TEMP: f64 = 0.0;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3Vl, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
-        let text = "Sally told me she saw that dang fox jump over the poor lazy dog again. A travesty, really.";
+        let text = "Sally told me she saw that dang fox jump over the poor lazy dog again. A travesty, really. \
+            Maybe someone should do something about it?";
 
         // Expand the text
         let expanded = model.expand(text, SEED, Some(TEMP));
         println!("\nExpanded text: {}", expanded);
 
         // Summarize the text
-        let summary = model.summarize_to_tokens(&expanded, 60, false, SEED, TEMP, 5);
+        let summary = model.summarize(&expanded, SEED, Some(TEMP));
         println!("\nSummary: {}", summary);
     }
 
     #[test]
     fn predict_next() {
         const SEED: u64 = 13579;
-        const TEMP: f64 = 0.7;
+        const TEMP: f64 = 0.6;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         let mut text =
             "The quick brown fox jumps over the lazy dog. The slow brown cow, however, is"
@@ -174,7 +175,7 @@ mod tests {
         // Predict the rest of the text
         text.push_str(
             &model
-                .predict_next(&text, SEED, Some(TEMP), None, 1.0, 0)
+                .predict_next(&text, SEED, Some(TEMP), None, 1.1, 64)
                 .complete(&["\n"])
                 .0,
         );
@@ -184,13 +185,13 @@ mod tests {
     #[test]
     fn predict_chain() {
         const SEED: u64 = 13579;
-        const TEMP: f64 = 0.7;
-        const TEMPLATE: &str = "There once was a man named {} who lived in {}.";
+        const TEMP: f64 = 0.6;
+        const TEMPLATE: &str = "There once was a man named {} who lived in a {}.";
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
-        let (generated, full_text) = model.predict_chain(TEMPLATE, SEED, Some(TEMP), None, 1.0, 0);
+        let (generated, full_text) = model.predict_chain(TEMPLATE, SEED, Some(TEMP), None, 1.1, 64);
         for (i, text) in generated.iter().enumerate() {
             println!("Generated text {}: {}", i, text);
         }
@@ -199,13 +200,13 @@ mod tests {
 
     #[test]
     fn predict_next_chat() {
-        const SEED: u64 = 13579;
-        const TEMP: f64 = 0.7;
+        const SEED: u64 = 3246346;
+        const TEMP: f64 = 0.6;
         const CHARACTER_NAMES: &[&str] = &["Alice", "Bob", "Charlie", "Diana"];
         const CONVERSATION_TURNS: usize = 7;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Initialize the string that serves as the chat history
         let mut chat = format!(
@@ -224,7 +225,7 @@ mod tests {
 
             // Generate the character's dialogue by predicting the next part of the conversation
             let response = model
-                .predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.0, 0)
+                .predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.1, 64)
                 .complete(&["\"", "\n"])
                 .0;
             chat.push_str(&format!("{}\"", response));
@@ -235,18 +236,18 @@ mod tests {
 
     #[test]
     fn generate_story() {
-        const SEED: u64 = 6575;
-        const TEMP: f64 = 0.7;
+        const SEED: u64 = 547845;
+        const TEMP: f64 = 0.6;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Generate a story
         let mut story = "There was once".to_string();
         story.push_str(
             &model
-                .predict_next("There was once", SEED, Some(TEMP), None, 1.1, 64)
-                .complete(&["\n"])
+                .predict_next("long_story = \"There was once", SEED, Some(TEMP), None, 1.1, 64)
+                .complete(&["\""])
                 .0,
         );
         println!("Generated story:\n{}", story);
@@ -255,10 +256,10 @@ mod tests {
     #[test]
     fn thinking_simple_math() {
         const SEED: u64 = 3463;
-        const TEMP: f64 = 0.7;
+        const TEMP: f64 = 0.6;
 
         // Create the model and chat
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Give the model a simple problem to think about
         let (result, thoughts) = model
@@ -269,8 +270,8 @@ mod tests {
                 SEED,
                 Some(TEMP),
                 None,
-                1.0,
-                0,
+                1.1,
+                64,
             );
         let result = result
             .complete(&[])
@@ -284,10 +285,10 @@ mod tests {
     #[test]
     fn thinking_literature() {
         const SEED: u64 = 3463;
-        const TEMP: f64 = 0.7;
+        const TEMP: f64 = 0.6;
 
         // Create the model and chat
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Give the model a literary analysis problem to think about
         let (result, thoughts) = model
@@ -320,8 +321,8 @@ mod tests {
                 SEED,
                 Some(TEMP),
                 None,
-                1.0,
-                0,
+                1.1,
+                64,
             );
             let result = result
                 .complete(&[])
@@ -337,7 +338,7 @@ mod tests {
         const SEED: u64 = 635681;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Create a JSON object
         let json = json!({
