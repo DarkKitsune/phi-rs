@@ -23,14 +23,20 @@ impl ModelType {
     /// Returns true if this model type supports chat functionality.
     pub fn can_chat(&self) -> bool {
         match self {
-            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
+            ModelType::Qwen25Instruct
+            | ModelType::Qwen3
+            | ModelType::Qwen3Special
+            | ModelType::Qwen3Vl => true,
         }
     }
 
     /// Returns true if this model type supports "thinking" functionality.
     pub fn can_think(&self) -> bool {
         match self {
-            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
+            ModelType::Qwen25Instruct
+            | ModelType::Qwen3
+            | ModelType::Qwen3Special
+            | ModelType::Qwen3Vl => true,
         }
     }
 
@@ -101,7 +107,6 @@ impl ModelType {
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen3Vl(config)
             }
-
         }
     }
 
@@ -123,7 +128,10 @@ impl ModelType {
     /// Preprocesses the logits for this model type.
     pub fn process_logits(&self, logits: Tensor) -> Tensor {
         match self {
-            ModelType::Qwen25Instruct | ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => {
+            ModelType::Qwen25Instruct
+            | ModelType::Qwen3
+            | ModelType::Qwen3Special
+            | ModelType::Qwen3Vl => {
                 // Process logits for Qwen3 model
                 logits
                     .squeeze(0)
@@ -265,11 +273,17 @@ impl ModelRepo {
                 let api_repo = api.model(repo.clone());
                 file_names
                     .iter()
-                    .map(|&file_name| api_repo.get(file_name).unwrap_or_else(|e| panic!("Failed to get file {} from {}: {}", file_name, repo, e))).collect()
-            },
-            ModelRepo::Local(path) => {
-                file_names.iter().map(|&file_name| PathBuf::from(path).join(file_name)).collect()
+                    .map(|&file_name| {
+                        api_repo.get(file_name).unwrap_or_else(|e| {
+                            panic!("Failed to get file {} from {}: {}", file_name, repo, e)
+                        })
+                    })
+                    .collect()
             }
+            ModelRepo::Local(path) => file_names
+                .iter()
+                .map(|&file_name| PathBuf::from(path).join(file_name))
+                .collect(),
         }
     }
 }

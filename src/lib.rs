@@ -5,6 +5,8 @@ pub mod model;
 pub mod model_type;
 pub mod prelude;
 pub mod token_string;
+pub mod scene;
+pub mod actor;
 
 #[cfg(test)]
 mod tests {
@@ -13,7 +15,7 @@ mod tests {
     use ggmath::random::ToSeed;
     use serde_json::json;
 
-    use crate::prelude::*;
+    use crate::{prelude::*};
 
     #[test]
     fn chat() {
@@ -56,6 +58,69 @@ mod tests {
             );
             println!("\n{}\n", chat.last_message().unwrap());
         }
+    }
+
+    #[test]
+    fn scene() {
+        const SEED: u64 = 12345;
+        const TEMP: f64 = 0.6;
+        const STORY_CYCLES: usize = 5;
+
+        // Create the model
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
+
+        // Create a new scene
+        let mut scene = Scene::new(
+            "Forest Encounter",
+            "The scene opens in a dense forest. Alice and Bob are exploring the area, \
+            looking for signs of a supposed nearby ruin.",
+            model
+        );
+
+        // Add actors to the scene
+        scene.add_actor(Actor::new(
+            "Alice",
+            "A curious and adventurous young woman, with a knack for archery."
+        ));
+        scene.add_actor(Actor::new(
+            "Bob",
+            "A cautious and thoughtful young man, always looking out for his friends."
+        ));
+
+        // Add a turn to the scene
+        scene.add_turn(SceneTurn::dialogue("Alice", "What is that over there?")).unwrap();
+        scene.add_turn(SceneTurn::dialogue("Bob", "I think it's a mysterious creature.")).unwrap();
+
+        for _ in 0..STORY_CYCLES {
+            scene.infer_next_turn(
+                InferredSceneTurn::story(),
+                SEED,
+                Some(TEMP),
+                1.1,
+                64,
+            ).unwrap();
+
+            scene.infer_next_turn(
+                InferredSceneTurn::action("Alice".to_string()),
+                SEED,
+                Some(TEMP),
+                1.1,
+                64,
+            ).unwrap();
+            
+            scene.infer_next_turn(
+                InferredSceneTurn::dialogue("Bob".to_string()),
+                SEED,
+                Some(TEMP),
+                1.1,
+                64,
+            ).unwrap();
+
+            println!("\n{}\n", scene);
+        }
+
+        // Print the scene
+        println!("Scene:\n{}", scene);
     }
 
     #[test]
@@ -161,28 +226,6 @@ mod tests {
     }
 
     #[test]
-    fn predict_next() {
-        const SEED: u64 = 13579;
-        const TEMP: f64 = 0.6;
-
-        // Create the model
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
-
-        let mut text =
-            "The quick brown fox jumps over the lazy dog. The slow brown cow, however, is"
-                .to_string();
-
-        // Predict the rest of the text
-        text.push_str(
-            &model
-                .predict_next(&text, SEED, Some(TEMP), None, 1.1, 64)
-                .complete(&["\n"])
-                .0,
-        );
-        println!("Completed text: {}", text);
-    }
-
-    #[test]
     fn predict_chain() {
         const SEED: u64 = 13579;
         const TEMP: f64 = 0.6;
@@ -199,42 +242,6 @@ mod tests {
     }
 
     #[test]
-    fn predict_next_chat() {
-        const SEED: u64 = 3246346;
-        const TEMP: f64 = 0.6;
-        const CHARACTER_NAMES: &[&str] = &["Alice", "Bob", "Charlie", "Diana"];
-        const CONVERSATION_TURNS: usize = 7;
-
-        // Create the model
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
-
-        // Initialize the string that serves as the chat history
-        let mut chat = format!(
-            "The scene opens on {} standing in the middle of a forest. The group have encountered a mysterious creature.",
-            CHARACTER_NAMES.join(", ")
-        );
-
-        // Simulate a conversation
-        for turn in 0..(CONVERSATION_TURNS as u64) {
-            // Decide which character is speaking this turn
-            let speaking_character = CHARACTER_NAMES
-                [(SEED.wrapping_add(turn).into_random::<u64>() as usize) % CHARACTER_NAMES.len()];
-
-            // Start the character's dialogue
-            chat.push_str(&format!("\n{}: \"", speaking_character));
-
-            // Generate the character's dialogue by predicting the next part of the conversation
-            let response = model
-                .predict_next(&chat, SEED.wrapping_add(turn), Some(TEMP), None, 1.1, 64)
-                .complete(&["\"", "\n"])
-                .0;
-            chat.push_str(&format!("{}\"", response));
-        }
-
-        println!("Final chat:\n{}", chat);
-    }
-
-    #[test]
     fn generate_story() {
         const SEED: u64 = 547845;
         const TEMP: f64 = 0.6;
@@ -246,7 +253,14 @@ mod tests {
         let mut story = "There was once".to_string();
         story.push_str(
             &model
-                .predict_next("long_story = \"There was once", SEED, Some(TEMP), None, 1.1, 64)
+                .predict_next(
+                    "long_story = \"There was once",
+                    SEED,
+                    Some(TEMP),
+                    None,
+                    1.1,
+                    64,
+                )
                 .complete(&["\""])
                 .0,
         );
@@ -262,75 +276,23 @@ mod tests {
         let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Give the model a simple problem to think about
-        let (result, thoughts) = model
-            .instruct(
-                "If a train leaves Station A at 60 mph and another leaves Station B 100 \
+        let (result, thoughts) = model.instruct(
+            "If a train leaves Station A at 60 mph and another leaves Station B 100 \
                 miles away at 40 mph towards each other, when do they meet?",
-                true,
-                SEED,
-                Some(TEMP),
-                None,
-                1.1,
-                64,
-            );
-        let result = result
-            .complete(&[])
-            .0
-            .trim()
-            .to_string();
+            true,
+            SEED,
+            Some(TEMP),
+            None,
+            1.1,
+            64,
+        );
+        let result = result.complete(&[]).0.trim().to_string();
 
-        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts.unwrap_or_default(), result);
-    }
-
-    #[test]
-    fn thinking_literature() {
-        const SEED: u64 = 3463;
-        const TEMP: f64 = 0.6;
-
-        // Create the model and chat
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
-
-        // Give the model a literary analysis problem to think about
-        let (result, thoughts) = model
-            .instruct(
-                "Analyze the following poem and explain its themes:\n\
-                Two roads diverged in a yellow wood,\n\
-                And sorry I could not travel both\n\
-                And be one traveler, long I stood\n\
-                And looked down one as far as I could\n\
-                To where it bent in the undergrowth;\n\
-                \n\
-                Then took the other, as just as fair,\n\
-                And having perhaps the better claim,\n\
-                Because it was grassy and wanted wear;\n\
-                Though as for that the passing there\n\
-                Had worn them really about the same,\n\
-                \n\
-                And both that morning equally lay\n\
-                In leaves no step had trodden black.\n\
-                Oh, I kept the first for another day!\n\
-                Yet knowing how way leads on to way,\n\
-                I doubted if I should ever come back.\n\
-                \n\
-                I shall be telling this with a sigh\n\
-                Somewhere ages and ages hence:\n\
-                Two roads diverged in a wood, and I—\n\
-                I took the one less traveled by,\n\
-                And that has made all the difference.'",
-                true,
-                SEED,
-                Some(TEMP),
-                None,
-                1.1,
-                64,
-            );
-            let result = result
-                .complete(&[])
-                .0
-                .trim()
-                .to_string();
-
-        println!("\nThoughts:\n{}\nRest:\n{}\n", thoughts.unwrap_or_default(), result);
+        println!(
+            "\nThoughts:\n{}\nRest:\n{}\n",
+            thoughts.unwrap_or_default(),
+            result
+        );
     }
 
     #[test]

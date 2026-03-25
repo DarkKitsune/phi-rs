@@ -49,7 +49,10 @@ impl Model {
         let config = model_type.create_config(&model_repo, &api);
 
         // Get the tokenizer and model files
-        let tokenizer_filename = tokenizer_repo.file_paths(&[model_type.tokenizer_json_name()], &api).pop().unwrap();
+        let tokenizer_filename = tokenizer_repo
+            .file_paths(&[model_type.tokenizer_json_name()], &api)
+            .pop()
+            .unwrap();
         let model_filenames = model_type
             .model_names()
             .iter()
@@ -215,7 +218,7 @@ impl Model {
                 self.infer_iter(&prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
                     .unwrap()
                     .complete(&["</think>"])
-                    .0
+                    .0,
             );
 
             // Then append the thoughts to the prompt and close the think block
@@ -233,7 +236,7 @@ impl Model {
         (
             self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
                 .unwrap(),
-            thoughts
+            thoughts,
         )
     }
 
@@ -713,17 +716,19 @@ impl Pipeline {
         match self {
             Pipeline::Qwen2(qwen2) => qwen2.forward(xs, start_pos).unwrap(),
             Pipeline::Qwen3(qwen3) => qwen3.forward(xs, start_pos).unwrap(),
-            Pipeline::Qwen3Vl(qwen3_vl) => qwen3_vl.forward(
-                xs,
-                None,
-                None,
-                None,
-                None,
-                vec![seq_len],
-                vec![],
-                vec![],
-                &[start_pos]
-            ).unwrap(),
+            Pipeline::Qwen3Vl(qwen3_vl) => qwen3_vl
+                .forward(
+                    xs,
+                    None,
+                    None,
+                    None,
+                    None,
+                    vec![seq_len],
+                    vec![],
+                    vec![],
+                    &[start_pos],
+                )
+                .unwrap(),
         }
     }
 }

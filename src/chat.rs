@@ -88,22 +88,19 @@ impl Chat {
         let end_sequences: &[&str] = if ignore_end_sequences { &[] } else { &["\n\n"] };
 
         // Infer the response and thoughts from the model
-        let (response, thoughts) = model
-            .chat(
-                self,
-                sender,
-                think,
-                seed,
-                temp,
-                None,
-                repeat_penalty,
-                repeat_last_n,
-            );
-        
+        let (response, thoughts) = model.chat(
+            self,
+            sender,
+            think,
+            seed,
+            temp,
+            None,
+            repeat_penalty,
+            repeat_last_n,
+        );
+
         // Get the complete response
-        let response = response
-            .complete(end_sequences)
-            .0;
+        let response = response.complete(end_sequences).0;
 
         // Add the generated response to the chat as a new message
         self.add_message(sender.clone(), response);
