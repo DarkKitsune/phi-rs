@@ -11,11 +11,11 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct ActionPattern {
     name: String,
-    arguments: Vec<String>,
+    arguments: Vec<(String, ArgType)>,
 }
 
 impl ActionPattern {
-    pub fn new(name: impl Display, arguments: Vec<String>) -> Self {
+    pub fn new(name: impl Display, arguments: Vec<(String, ArgType)>) -> Self {
         Self { name: name.to_string(), arguments }
     }
 
@@ -23,7 +23,7 @@ impl ActionPattern {
         &self.name
     }
 
-    pub fn arguments(&self) -> &[String] {
+    pub fn arguments(&self) -> &[(String, ArgType)] {
         &self.arguments
     }
 }
@@ -87,12 +87,12 @@ impl ActionExtractor {
         // Inform the model about the currently known action patterns
         chat.set_system_prompt(format!(
             "You are a helpful coding assistant who writes function calls representing \
-                the given text.\n\nYou may only call one of the following functions:\n{}\n",
+                the given text.\n\n<functions>\n\n{}\n\n</functions>",
             self.patterns
                 .iter()
-                .map(|p| format!("- fn_{}({})", p.name().trim(), p.arguments().join(", ")))
+                .map(|p| format!("function fn_{}({}) {{...}}", p.name().trim(), p.arguments().iter().map(|(name, ty)| format!("{}: {}", name, ty.typescript_type())).collect::<Vec<_>>().join(", "))) 
                 .collect::<Vec<_>>()
-                .join("\n")
+                .join("\n\n")
         ));
 
         // Ask the model to generate the appropriate function call for the given text
@@ -191,4 +191,23 @@ impl Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}({})", self.name, self.arguments.join(", "))
     }
+}
+
+/// The type of an argument to an action.
+#[derive(Clone, Copy, Debug)]
+pub enum ArgType {
+    String,
+    Number,
+    Boolean,
+}
+
+impl ArgType {
+    pub fn typescript_type(&self) -> &'static str {
+        match self {
+            ArgType::String => "string",
+            ArgType::Number => "number",
+            ArgType::Boolean => "boolean",
+        }
+    }
+
 }

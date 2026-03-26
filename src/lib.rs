@@ -145,19 +145,19 @@ mod tests {
         extractor
             .add_action_pattern(ActionPattern::new(
                 "travel",
-                vec!["direction".to_string()],
+                vec![("direction".to_string(), ArgType::String)],
             ))
             .unwrap();
         extractor
             .add_action_pattern(ActionPattern::new(
                 "attack",
-                vec!["target_name".to_string()],
+                vec![("target_name".to_string(), ArgType::String)],
             ))
             .unwrap();
         extractor
             .add_action_pattern(ActionPattern::new(
-                "talk",
-                vec!["dialog_string".to_string()],
+                "say",
+                vec![("text_to_say".to_string(), ArgType::String)],
             ))
             .unwrap();
 
@@ -166,7 +166,7 @@ mod tests {
             "Go north",
             "Go south",
             "Attack the goblin",
-            "Say hello to Jimmy",
+            "Tell a funny joke",
             "Kill the villagers",
             "Walk to the east",
         ];

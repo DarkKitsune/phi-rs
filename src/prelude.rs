@@ -1,4 +1,4 @@
-pub use crate::action::{Action, ActionExtractor, ActionPattern};
+pub use crate::action::{Action, ActionExtractor, ActionPattern, ArgType};
 pub use crate::actor::Actor;
 pub use crate::chat::{Chat, ChatMessage, ChatRole};
 pub use crate::data::{JsonMap, JsonValue};
