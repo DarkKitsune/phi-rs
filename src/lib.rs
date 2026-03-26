@@ -1,21 +1,21 @@
+pub mod action;
+pub mod actor;
 pub mod chat;
 pub mod data;
 pub mod inference;
 pub mod model;
 pub mod model_type;
 pub mod prelude;
-pub mod token_string;
 pub mod scene;
-pub mod actor;
+pub mod token_string;
 
 #[cfg(test)]
 mod tests {
     use std::io::Write;
 
-    use ggmath::random::ToSeed;
     use serde_json::json;
 
-    use crate::{prelude::*};
+    use crate::prelude::*;
 
     #[test]
     fn chat() {
@@ -74,53 +74,114 @@ mod tests {
             "Forest Encounter",
             "The scene opens in a dense forest. Alice and Bob are exploring the area, \
             looking for signs of a supposed nearby ruin.",
-            model
+            model,
         );
 
         // Add actors to the scene
         scene.add_actor(Actor::new(
             "Alice",
-            "A curious and adventurous young woman, with a knack for archery."
+            "A curious and adventurous young woman, with a knack for archery.",
         ));
         scene.add_actor(Actor::new(
             "Bob",
-            "A cautious and thoughtful young man, always looking out for his friends."
+            "A cautious and thoughtful young man, always looking out for his friends.",
         ));
 
         // Add a turn to the scene
-        scene.add_turn(SceneTurn::dialogue("Alice", "What is that over there?")).unwrap();
-        scene.add_turn(SceneTurn::dialogue("Bob", "I think it's a mysterious creature.")).unwrap();
+        scene
+            .add_turn(SceneTurn::dialogue("Alice", "What is that over there?"))
+            .unwrap();
+        scene
+            .add_turn(SceneTurn::dialogue(
+                "Bob",
+                "I think it's a mysterious creature.",
+            ))
+            .unwrap();
 
         for _ in 0..STORY_CYCLES {
-            scene.infer_next_turn(
-                InferredSceneTurn::story(),
-                SEED,
-                Some(TEMP),
-                1.1,
-                64,
-            ).unwrap();
+            scene
+                .infer_next_turn(InferredSceneTurn::story(), SEED, Some(TEMP), 1.1, 64)
+                .unwrap();
 
-            scene.infer_next_turn(
-                InferredSceneTurn::action("Alice".to_string()),
-                SEED,
-                Some(TEMP),
-                1.1,
-                64,
-            ).unwrap();
-            
-            scene.infer_next_turn(
-                InferredSceneTurn::dialogue("Bob".to_string()),
-                SEED,
-                Some(TEMP),
-                1.1,
-                64,
-            ).unwrap();
+            scene
+                .infer_next_turn(
+                    InferredSceneTurn::action("Alice".to_string()),
+                    SEED,
+                    Some(TEMP),
+                    1.1,
+                    64,
+                )
+                .unwrap();
+
+            scene
+                .infer_next_turn(
+                    InferredSceneTurn::dialogue("Bob".to_string()),
+                    SEED,
+                    Some(TEMP),
+                    1.1,
+                    64,
+                )
+                .unwrap();
 
             println!("\n{}\n", scene);
         }
 
         // Print the scene
         println!("Scene:\n{}", scene);
+    }
+
+    #[test]
+    fn action_extraction() {
+        const SEED: u64 = 3525;
+        const ATTEMPTS: usize = 5;
+
+        // Create the model
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
+
+        // Create an action extractor
+        let mut extractor = ActionExtractor::new(model.clone());
+
+        // Add some action patterns
+        extractor
+            .add_action_pattern(ActionPattern::new(
+                "travel",
+                vec!["direction".to_string()],
+            ))
+            .unwrap();
+        extractor
+            .add_action_pattern(ActionPattern::new(
+                "attack",
+                vec!["target_name".to_string()],
+            ))
+            .unwrap();
+        extractor
+            .add_action_pattern(ActionPattern::new(
+                "talk",
+                vec!["dialog_string".to_string()],
+            ))
+            .unwrap();
+
+        // Extract some actions from text
+        let text_strings = [
+            "Go north",
+            "Go south",
+            "Attack the goblin",
+            "Say hello to Jimmy",
+            "Kill the villagers",
+            "Walk to the east",
+        ];
+
+        for text in text_strings {
+            let action = extractor.extract_action(text, ATTEMPTS);
+            println!(
+                "Extracted action from '{}': {}",
+                text,
+                action
+                    .as_ref()
+                    .map(Action::to_string)
+                    .unwrap_or("None".to_string())
+            );
+        }
     }
 
     #[test]

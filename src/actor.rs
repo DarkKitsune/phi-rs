@@ -7,7 +7,10 @@ pub struct Actor {
 
 impl Actor {
     pub fn new(name: impl Display, identity: impl Display) -> Self {
-        Self { name: name.to_string(), identity: identity.to_string() }
+        Self {
+            name: name.to_string(),
+            identity: identity.to_string(),
+        }
     }
 
     pub fn name(&self) -> &str {

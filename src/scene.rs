@@ -18,7 +18,7 @@ impl Scene {
 
     /// The number of turns to retain when compressing the scene.
     const COMPRESS_RETAIN_TURNS: usize = 3;
-    
+
     /// Creates a new, empty scene.
     pub fn new(name: impl Display, intro: impl Display, model: Model) -> Self {
         Self {
@@ -48,7 +48,9 @@ impl Scene {
     /// Returns an error if the actor for this turn does not exist in the scene.
     pub fn add_turn(&mut self, turn: SceneTurn) -> Result<()> {
         // Bail if the actor for this turn does not exist in the scene
-        if let Some(actor_name) = turn.actor_name() && self.actor_with_name(actor_name).is_none() {
+        if let Some(actor_name) = turn.actor_name()
+            && self.actor_with_name(actor_name).is_none()
+        {
             anyhow::bail!("Actor '{}' does not exist in the scene", actor_name);
         }
 
@@ -63,7 +65,7 @@ impl Scene {
 
         // Add the new turn to the scene
         self.turns.push(turn);
-        
+
         Ok(())
     }
 
@@ -81,7 +83,9 @@ impl Scene {
         repeat_last_n: usize,
     ) -> Result<&SceneTurn> {
         // Bail if the actor for this turn does not exist in the scene
-        if let Some(actor_name) = turn.actor_name() && self.actor_with_name(actor_name).is_none() {
+        if let Some(actor_name) = turn.actor_name()
+            && self.actor_with_name(actor_name).is_none()
+        {
             anyhow::bail!("Actor '{}' does not exist in the scene", actor_name);
         }
 
@@ -91,9 +95,11 @@ impl Scene {
 
         // Append the begin sequence for this inferred turn
         prompt.push_str(&turn.begin_sequence());
-        
+
         // Infer until one of the end sequences for this inferred turn is found
-        let inferred = self.model.predict_next(prompt, seed, temp, None, repeat_penalty, repeat_last_n)
+        let inferred = self
+            .model
+            .predict_next(prompt, seed, temp, None, repeat_penalty, repeat_last_n)
             .complete(turn.end_sequences())
             .0;
 
@@ -104,14 +110,20 @@ impl Scene {
         Ok(self.turns.last().unwrap())
     }
 
-
     fn ready_for_compression(&mut self) -> Option<String> {
         if self.turns.len() > Self::COMPRESS_THRESHOLD {
             // Gather the turns to compress
-            let to_compress = self.turns.drain(0..self.turns.len().saturating_sub(Self::COMPRESS_RETAIN_TURNS));
+            let to_compress = self
+                .turns
+                .drain(0..self.turns.len().saturating_sub(Self::COMPRESS_RETAIN_TURNS));
 
             // Format them as a string
-            Some(to_compress.map(|turn| turn.to_string()).collect::<Vec<_>>().join("\n\n"))
+            Some(
+                to_compress
+                    .map(|turn| turn.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n\n"),
+            )
         } else {
             None
         }
@@ -125,9 +137,23 @@ impl Scene {
 impl Display for Scene {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Describe the cast of actors and their identities
-        let cast_string = self.actors.iter().map(|actor| format!("{}:\n{}", actor.name(), actor.identity())).collect::<Vec<_>>().join("\n\n");
-        let turns_string = self.turns.iter().map(|turn| turn.to_string()).collect::<Vec<_>>().join("\n\n");
-        write!(f, "Cast:\n\n{}\n\n\nACT ONE\n\n{}\n\n{}", cast_string, self.name, turns_string)
+        let cast_string = self
+            .actors
+            .iter()
+            .map(|actor| format!("{}:\n{}", actor.name(), actor.identity()))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let turns_string = self
+            .turns
+            .iter()
+            .map(|turn| turn.to_string())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        write!(
+            f,
+            "Cast:\n\n{}\n\n\nACT ONE\n\n{}\n\n{}",
+            cast_string, self.name, turns_string
+        )
     }
 }
 
@@ -153,7 +179,6 @@ impl SceneTurn {
     pub fn action(actor: impl Display, action: impl Display) -> Self {
         SceneTurn::Action(actor.to_string(), action.to_string())
     }
-
 
     /// Get the actor name associated with this turn, if it has one.
     pub fn actor_name(&self) -> Option<&str> {
@@ -207,7 +232,6 @@ impl InferredSceneTurn {
             InferredSceneTurn::Action(actor) => SceneTurn::Action(actor, text),
         }
     }
-
 
     /// Get the actor name associated with this turn, if it has one.
     pub fn actor_name(&self) -> Option<&str> {
