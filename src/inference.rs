@@ -47,7 +47,9 @@ impl InferIter {
         }
     }
 
-    fn next_token(&mut self, insert_before: Option<&str>) -> Option<u32> {
+    /// Infer the next token, optionally inserting some text first to influence the inference.
+    /// Returns None if the end of text token is reached.
+    pub fn next_token(&mut self, insert_before: Option<&str>) -> Option<u32> {
         // Exit early if we already got the end of text token
         if self.reached_eos {
             return None;
@@ -55,9 +57,9 @@ impl InferIter {
 
         // Insert the insert_before onto self.tokens if insert_before is Some
         // Also get the size of the inserted text in tokens to calculate the context correctly
-        let context_add = if let Some(text) = insert_before {
+        let context_add = if let Some(insert_before_text) = insert_before {
             let old_len = self.tokens.len();
-            self.tokens.push_str(text);
+            self.tokens.push_str(insert_before_text);
             self.tokens.len() - old_len
         } else {
             0

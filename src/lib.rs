@@ -233,22 +233,23 @@ mod tests {
     #[test]
     fn predict_chain() {
         const SEED: u64 = 13579;
-        const TEMP: f64 = 0.6;
+        const TEMP: f64 = 0.5;
 
         // Create the model
         let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         let mut prediction = model.predict_next(
-            "Here is my character bio:\nName: Jessie\n",
+            "Here is my character bio:\nName: Jessie\nAge: 19\nClass: Archer\n",
             SEED,
             Some(TEMP),
             None,
             1.1,
             64
         );
-        let age = prediction.next_value(Some("Age: "));
-        let occupation = prediction.next_value(Some("Occupation: "));
-        println!("Predicted character bio:\nName: Jessie\nAge: {}\nOccupation: {}", age, occupation);
+        let weapon: String = prediction.next_value(Some("Weapon: "));
+        let clothing = prediction.next_value(Some("Clothing: "));
+        let hometown = prediction.next_value(Some("Hometown: "));
+        println!("Predicted character bio:\nName: Jessie\nAge: 19\nClass: Archer\nWeapon: {}\nClothing: {}\nHometown: {}", weapon, clothing, hometown);
     }
 
     #[test]
