@@ -96,7 +96,9 @@ impl Scene {
             .model
             .predict_next(prompt, seed, temp, None, repeat_penalty, repeat_last_n)
             .complete(turn.end_sequences())
-            .0;
+            .0
+            .trim()
+            .to_string();
 
         // Complete the inferred turn with the inferred text
         let completed_turn = turn.complete(inferred);
@@ -189,8 +191,8 @@ impl Display for SceneTurn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SceneTurn::Story(text) => write!(f, "*{}*", text),
-            SceneTurn::Dialogue(actor, text) => write!(f, "{}\n\"{}\"", actor, text),
-            SceneTurn::Action(actor, action) => write!(f, "{} {}", actor, action),
+            SceneTurn::Dialogue(actor, text) => write!(f, "**{}**\n\"{}\"", actor, text),
+            SceneTurn::Action(actor, action) => write!(f, "*{} {}*", actor, action),
         }
     }
 }
@@ -241,8 +243,8 @@ impl InferredSceneTurn {
     pub fn begin_sequence(&self) -> String {
         match self {
             InferredSceneTurn::Story => "*".to_string(),
-            InferredSceneTurn::Dialogue(actor) => format!("{}\n\"", actor),
-            InferredSceneTurn::Action(actor) => actor.clone(),
+            InferredSceneTurn::Dialogue(actor) => format!("**{}**\n\"", actor),
+            InferredSceneTurn::Action(actor) => format!("*Next, {}", actor),
         }
     }
 
@@ -251,7 +253,7 @@ impl InferredSceneTurn {
         match self {
             InferredSceneTurn::Story => &["*", "\n\n"],
             InferredSceneTurn::Dialogue(_) => &["\"", "\n\n"],
-            InferredSceneTurn::Action(_) => &["\n\n"],
+            InferredSceneTurn::Action(_) => &["*", "\n\n"],
         }
     }
 }
