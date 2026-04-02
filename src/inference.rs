@@ -47,14 +47,24 @@ impl InferIter {
         }
     }
 
-    pub fn next_token(&mut self) -> Option<u32> {
+    fn next_token(&mut self, insert_before: Option<&str>) -> Option<u32> {
         // Exit early if we already got the end of text token
         if self.reached_eos {
             return None;
         }
 
+        // Insert the insert_before onto self.tokens if insert_before is Some
+        // Also get the size of the inserted text in tokens to calculate the context correctly
+        let context_add = if let Some(text) = insert_before {
+            let old_len = self.tokens.len();
+            self.tokens.push_str(text);
+            self.tokens.len() - old_len
+        } else {
+            0
+        };
+
         // Get the context size for this step
-        let context_size = if self.step > 0 { 1 } else { self.tokens.len() };
+        let context_size = (if self.step > 0 { 1 } else { self.tokens.len() }) + context_add;
 
         // Get the start position for the context
         let start_pos = self.tokens.len().saturating_sub(context_size);
@@ -112,10 +122,10 @@ impl InferIter {
     /// and return everything up to that point as a `String`, as well as the end sequence that was reached
     pub fn complete<'a>(mut self, end_sequences: &'a [&str]) -> (String, Option<&'a str>) {
         let mut response = String::new();
-        while let Some(token) = self.next_token()
+        while let Some(token) = self.next_token(None)
             && token < self.vocab_size as u32 - 1
         {
-            let token_str = self.tokens.model.detokenize(&[token]);
+            let token_str = self.tokens.model.detokenize([token]);
 
             response.push_str(&token_str);
 
@@ -139,14 +149,40 @@ impl InferIter {
         (response, None)
     }
 
+    /// Force inference of a single value or idea following the current context and an optional prefix.
+    /// This is useful for parsing a single value from the model, such as a number or a name, without
+    /// consuming the entire response.
+    pub fn next_value(&mut self, prefix: Option<&str>) -> String {
+        // Insert the prefix and "**" before the first token to force the model to generate a useful value.
+        // Run the iterator until we get "**" back, returning everything in between as a string.
+        let mut response = String::new();
+        let insert_before_string = format!("{}**", prefix.unwrap_or(""));
+        let mut insert_before = Some(insert_before_string.as_str());
+        while let Some(token) = self.next_token(insert_before)
+            && token < self.vocab_size as u32 - 1
+        {
+            insert_before = None;
+            let token_str = self.tokens.model.detokenize([token]);
+
+            response.push_str(&token_str);
+
+            if let Some(pos) = response.find("**") {
+                response.truncate(pos);
+                break;
+            }
+        }
+        response
+
+    }
+
     /// Run the iterator until the current bracket is closed and return everything up to that point as a `String`.
     pub fn complete_bracket(&mut self, open_bracket: char, close_bracket: char) -> String {
         let mut response = String::new();
         let mut bracket_count = 0;
         let mut in_string = false;
         let mut escaped_last = false;
-        while let Some(token) = self.next_token() {
-            let token_str = self.tokens.model.detokenize(&[token]);
+        while let Some(token) = self.next_token(None) {
+            let token_str = self.tokens.model.detokenize([token]);
             for c in token_str.chars() {
                 if c == '\\' && !escaped_last {
                     escaped_last = true;
@@ -182,6 +218,6 @@ impl Iterator for InferIter {
     type Item = u32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_token()
+        self.next_token(None)
     }
 }

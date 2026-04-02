@@ -234,16 +234,21 @@ mod tests {
     fn predict_chain() {
         const SEED: u64 = 13579;
         const TEMP: f64 = 0.6;
-        const TEMPLATE: &str = "There once was a man named {} who lived in a {}.";
 
         // Create the model
         let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
-        let (generated, full_text) = model.predict_chain(TEMPLATE, SEED, Some(TEMP), None, 1.1, 64);
-        for (i, text) in generated.iter().enumerate() {
-            println!("Generated text {}: {}", i, text);
-        }
-        println!("Full text: {}", full_text);
+        let mut prediction = model.predict_next(
+            "Here is my character bio:\nName: Jessie\n",
+            SEED,
+            Some(TEMP),
+            None,
+            1.1,
+            64
+        );
+        let age = prediction.next_value(Some("Age: "));
+        let occupation = prediction.next_value(Some("Occupation: "));
+        println!("Predicted character bio:\nName: Jessie\nAge: {}\nOccupation: {}", age, occupation);
     }
 
     #[test]

@@ -290,63 +290,6 @@ impl Model {
         self.infer_iter(prompt, seed, temp, top_p, repeat_penalty, repeat_last_n)
             .unwrap()
     }
-
-    /// Uses the model to several predictions in a chain, using the result of the previous
-    /// prediction as part of the prompt for the next prediction.
-    /// Use "{}" as placeholders in the template string where text should be generated.
-    /// Returns all generated texts in order.
-    /// Currently, the model does not look ahead when generating text for each placeholder,
-    /// so it is best used for where you need a single word or idea for each placeholder.
-    pub fn predict_chain(
-        &self,
-        template: impl AsRef<str>,
-        seed: u64,
-        temp: Option<f64>,
-        top_p: Option<f64>,
-        repeat_penalty: f32,
-        repeat_last_n: usize,
-    ) -> (Vec<String>, String) {
-        let template = template.as_ref();
-        let mut results = Vec::new();
-
-        // Split the template into parts by the "{}" placeholders
-        let parts: Vec<&str> = template.split("{}").collect();
-        if parts.len() < 2 {
-            panic!("Template must contain at least one '{{}}' placeholder");
-        }
-
-        // Generate text for each part except for the last
-        let mut so_far = String::new();
-        for (idx, part) in parts.iter().enumerate().take(parts.len() - 1) {
-            let part = part.trim();
-            let prompt = format!("{}{} **", so_far, part);
-            let rest = self
-                .predict_next(
-                    prompt,
-                    seed.wrapping_add(idx as u64),
-                    temp,
-                    top_p,
-                    repeat_penalty,
-                    repeat_last_n,
-                )
-                .complete(&["*", "\n"])
-                .0
-                .trim()
-                .to_string();
-            if idx > 0 {
-                so_far.push(' ');
-            }
-            so_far.push_str(part);
-            so_far.push(' ');
-            so_far.push_str(&rest);
-            results.push(rest);
-        }
-
-        // Append the last part without generating new text
-        so_far.push_str(parts.last().unwrap());
-
-        (results, so_far)
-    }
 }
 
 /// Contains a pipeline, could be one of multiple types.
