@@ -101,7 +101,6 @@ mod tests {
                 Some(TEMP),
                 1.1,
                 64,
-                false,
             );
             println!("\n{}\n", chat.last_message().unwrap());
         }

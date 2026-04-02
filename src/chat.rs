@@ -77,13 +77,7 @@ impl Chat {
         temp: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
-        ignore_end_sequences: bool,
     ) -> Option<String> {
-        // TODO: Temporary fix for some models generating multiple responses with newlines
-        // between instead of generating <|endoftext|> or <|im_end|> (in my testing).
-        // This should be investigated further.
-        let end_sequences: &[&str] = if ignore_end_sequences { &[] } else { &["\n\n"] };
-
         // Infer the response and thoughts from the model
         let (response, thoughts) = model.chat(
             self,
@@ -97,7 +91,7 @@ impl Chat {
         );
 
         // Get the complete response
-        let response = response.complete(end_sequences).0;
+        let response = response.complete(&[]).0;
 
         // Add the generated response to the chat as a new message
         self.add_message(sender.clone(), response);

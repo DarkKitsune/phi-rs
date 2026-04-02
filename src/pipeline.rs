@@ -80,10 +80,16 @@ impl PipelineStep {
                 }
 
                 // Convert end_sequences to a Vec<&str> for the complete method
-                let end_sequences = end_sequences
+                let mut end_sequences = end_sequences
                     .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<&str>>();
+
+                // Append a "---" end sequence if none of the provided end sequences contain it
+                // This helps avoid unnecessary tokens being generated after the model's response in some cases
+                if !end_sequences.iter().any(|s| s.contains("---")) {
+                    end_sequences.push("---");
+                }
 
                 // Get the model's response to the chat, stopping when one of the end sequences is generated
                 let response = model
