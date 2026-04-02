@@ -2,7 +2,7 @@ use candle_core::{Device, Tensor};
 use candle_transformers::generation::LogitsProcessor;
 
 use crate::{
-    model::Pipeline,
+    model::ModelPipeline,
     prelude::{ModelType, TokenString},
 };
 
@@ -12,7 +12,7 @@ pub struct InferIter {
     tokens: TokenString,
     vocab_size: usize,
     step: usize,
-    pipeline: Pipeline,
+    pipeline: ModelPipeline,
     logits_processor: LogitsProcessor,
     repeat_penalty: f32,
     repeat_last_n: usize,
@@ -26,7 +26,7 @@ impl InferIter {
         device: Device,
         tokens: TokenString,
         vocab_size: usize,
-        pipeline: Pipeline,
+        pipeline: ModelPipeline,
         logits_processor: LogitsProcessor,
         repeat_penalty: f32,
         repeat_last_n: usize,

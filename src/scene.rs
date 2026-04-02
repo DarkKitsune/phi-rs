@@ -13,12 +13,6 @@ pub struct Scene {
 }
 
 impl Scene {
-    /// The number of turns at which the scene will start compressing old turns.
-    const COMPRESS_THRESHOLD: usize = 10;
-
-    /// The number of turns to retain when compressing the scene.
-    const COMPRESS_RETAIN_TURNS: usize = 3;
-
     /// Creates a new, empty scene.
     pub fn new(name: impl Display, intro: impl Display, model: Model) -> Self {
         Self {
@@ -54,6 +48,7 @@ impl Scene {
             anyhow::bail!("Actor '{}' does not exist in the scene", actor_name);
         }
 
+        /*
         // Compress the scene turns if needed
         if let Some(compress_turns_string) = self.ready_for_compression() {
             // Summarize the turns using the model
@@ -61,7 +56,7 @@ impl Scene {
 
             // Insert the summarized turn back into the scene at position 0
             self.turns.insert(0, SceneTurn::Story(summary));
-        }
+        }*/
 
         // Add the new turn to the scene
         self.turns.push(turn);
@@ -109,7 +104,7 @@ impl Scene {
 
         Ok(self.turns.last().unwrap())
     }
-
+    /*
     fn ready_for_compression(&mut self) -> Option<String> {
         if self.turns.len() > Self::COMPRESS_THRESHOLD {
             // Gather the turns to compress
@@ -127,7 +122,7 @@ impl Scene {
         } else {
             None
         }
-    }
+    }*/
 
     pub fn turns(&self) -> &[SceneTurn] {
         &self.turns

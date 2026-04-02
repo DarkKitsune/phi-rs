@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
-use crate::model::{self, Model};
-use crate::prelude::{JsonMap, JsonValue};
+use crate::model::Model;
+use crate::prelude::JsonMap;
 
 /// Represents a chat between user and model.
 #[derive(Clone, Debug)]
@@ -13,7 +13,7 @@ pub struct Chat {
     /// stored in long term memory. Injected into the system prompt.
     long_term_memory: Option<String>,
     /// Extra data associated with the chat.
-    extra_data: Option<JsonMap<String, JsonValue>>,
+    extra_data: Option<JsonMap>,
     /// The messages in the chat.
     messages: Vec<ChatMessage>,
     /// The model's response is treated as if this text was prepended.
@@ -23,6 +23,7 @@ pub struct Chat {
 impl Chat {
     // Estimated number of tokens per character
     const TOKENS_PER_CHARACTER: f64 = 0.25;
+    /*
     /// Maximum number of tokens for the entire chat, including messages,
     /// system prompt, long term memory and extra data.
     const MAX_TOTAL_TOKENS: usize = model::MAX_TOKENS;
@@ -36,6 +37,7 @@ impl Chat {
     };
     /// The amount of messages to retain when compressing.
     const COMPRESS_RETAIN_MESSAGES: usize = 2;
+    */
 
     /// Creates a new chat with no messages.
     pub fn new() -> Self {
@@ -77,11 +79,6 @@ impl Chat {
         repeat_last_n: usize,
         ignore_end_sequences: bool,
     ) -> Option<String> {
-        // If token count exceeds the compress threshold, compress the chat first
-        if self.estimate_total_tokens() > Self::COMPRESS_THRESHOLD {
-            self.compress(model);
-        }
-
         // TODO: Temporary fix for some models generating multiple responses with newlines
         // between instead of generating <|endoftext|> or <|im_end|> (in my testing).
         // This should be investigated further.
@@ -137,12 +134,12 @@ impl Chat {
     }
 
     /// Returns a reference to the extra data associated with the chat.
-    pub fn extra_data(&self) -> Option<&JsonMap<String, JsonValue>> {
+    pub fn extra_data(&self) -> Option<&JsonMap> {
         self.extra_data.as_ref()
     }
 
     /// Returns a mutable reference to the extra data associated with the chat.
-    pub fn extra_data_mut(&mut self) -> &mut JsonMap<String, JsonValue> {
+    pub fn extra_data_mut(&mut self) -> &mut JsonMap {
         if self.extra_data.is_none() {
             self.extra_data = Some(JsonMap::new());
         }
@@ -150,7 +147,7 @@ impl Chat {
     }
 
     /// Replaces the extra data associated with the chat using the given map.
-    pub fn set_extra_data(&mut self, data: JsonMap<String, JsonValue>) {
+    pub fn set_extra_data(&mut self, data: JsonMap) {
         self.extra_data = Some(data);
     }
 
@@ -190,58 +187,11 @@ impl Chat {
 
         total_tokens
     }
+}
 
-    /// Compresses the chat by removing old messages and summarizing them with the long term memory.
-    /// Then, replace the long term memory with this summary.
-    pub fn compress(&mut self, model: &Model) {
-        // Gather long term memory and all messages up to the last COMPRESS_RETAIN_MESSAGES as chat history
-        let mut history = self.long_term_memory().unwrap_or("").to_string();
-        for message in &self.messages[..self
-            .messages
-            .len()
-            .saturating_sub(Self::COMPRESS_RETAIN_MESSAGES)]
-        {
-            history.push_str("\n");
-            history.push_str(
-                format!(
-                    "{}: \"{}\"",
-                    model.model_type().chat_role_name(message.sender()),
-                    message.content()
-                )
-                .as_str(),
-            );
-        }
-
-        println!("Beginning chat compression...");
-        println!(
-            "Chat history (-{} messages) before compression: {}",
-            Self::COMPRESS_RETAIN_MESSAGES,
-            history
-        );
-
-        // Summarize the chat history using the model
-        let summary =
-            model.summarize_to_tokens(&history, Self::MAX_LONG_TERM_MEMORY, true, 0, 0.0, 2);
-
-        // Set the long term memory to the summarized chat history
-        self.long_term_memory = Some(summary);
-
-        // Clear the messages up to the last COMPRESS_RETAIN_MESSAGES
-        let retain_start = self
-            .messages
-            .len()
-            .saturating_sub(Self::COMPRESS_RETAIN_MESSAGES);
-        self.messages.drain(..retain_start);
-
-        println!(
-            "Chat history after compression:\n{}\n{}",
-            self.long_term_memory().unwrap().to_string(),
-            self.messages()
-                .iter()
-                .map(|m| m.to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
+impl Default for Chat {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

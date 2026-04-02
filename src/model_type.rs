@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::path::PathBuf;
 
 use candle_core::{DType, Tensor};
@@ -8,7 +9,7 @@ use candle_transformers::models::qwen3_vl::Qwen3VLModel as Qwen3Vl;
 use hf_hub::api::sync::Api;
 
 use crate::chat::{Chat, ChatRole};
-use crate::model::{DynConfig, Pipeline};
+use crate::model::{DynConfig, ModelPipeline};
 
 /// Represents the size of model to use.
 /// This is used to determine which model files to load.
@@ -27,6 +28,7 @@ pub enum ModelSize {
 pub enum ModelType {
     Qwen25Instruct,
     Qwen3(ModelSize),
+    Qwen3InstructAbl,
     Qwen3Special,
     Qwen3Vl(ModelSize),
 }
@@ -37,6 +39,7 @@ impl ModelType {
         match self {
             ModelType::Qwen25Instruct
             | ModelType::Qwen3(_)
+            | ModelType::Qwen3InstructAbl
             | ModelType::Qwen3Special
             | ModelType::Qwen3Vl(_) => true,
         }
@@ -44,53 +47,41 @@ impl ModelType {
 
     /// Returns true if this model type supports "thinking" functionality.
     pub fn can_think(&self) -> bool {
-        match self {
-            ModelType::Qwen25Instruct
-            | ModelType::Qwen3(_)
-            | ModelType::Qwen3Special
-            | ModelType::Qwen3Vl(_) => true,
-        }
+        matches!(self, ModelType::Qwen25Instruct | ModelType::Qwen3(_) | ModelType::Qwen3Vl(_))
     }
 
     /// Returns true if this model requires the think tag to be present regardless.
     pub fn must_think(&self) -> bool {
-        match self {
-            ModelType::Qwen3(_) | ModelType::Qwen3Special | ModelType::Qwen3Vl(_) => true,
-            _ => false,
-        }
+        matches!(self, ModelType::Qwen3(_) | ModelType::Qwen3Vl(_))
     }
 
     /// Returns true if this model needs "/think " in the prompt to enable thinking.
     pub fn use_think_in_prompt(&self) -> bool {
-        match self {
-            ModelType::Qwen3(_) | ModelType::Qwen3Special | ModelType::Qwen3Vl(_) => true,
-            _ => false,
-        }
+        matches!(self, ModelType::Qwen3(_) | ModelType::Qwen3Vl(_))
     }
 
     pub fn model_repo(&self) -> ModelRepo {
         match self {
-            ModelType::Qwen25Instruct => ModelRepo::Hub("Qwen/Qwen2.5-1.5B-Instruct".to_string()),
+            ModelType::Qwen25Instruct => ModelRepo::hub("Qwen/Qwen2.5-1.5B-Instruct"),
             ModelType::Qwen3(model_size) => match model_size {
-                ModelSize::Small => ModelRepo::Hub("Qwen/Qwen3-1.7B".to_string()),
-                ModelSize::Medium => ModelRepo::Hub("Qwen/Qwen3-4B".to_string()),
-                ModelSize::Large => ModelRepo::Hub("Qwen/Qwen3-8B".to_string()),
+                ModelSize::Small => ModelRepo::hub("Qwen/Qwen3-1.7B"),
+                ModelSize::Medium => ModelRepo::hub("Qwen/Qwen3-4B"),
+                ModelSize::Large => ModelRepo::hub("Qwen/Qwen3-8B"),
             },
-            ModelType::Qwen3Vl(_) => ModelRepo::Hub("Qwen/Qwen3-VL-2B-Instruct".to_string()),
-            ModelType::Qwen3Special => ModelRepo::Local("./model/qwen3-special-1.7b".to_string()),
+            ModelType::Qwen3Vl(_) => ModelRepo::hub("Qwen/Qwen3-VL-2B-Instruct"),
+            ModelType::Qwen3Special => ModelRepo::local("./model/qwen3-special-4b"),
+            ModelType::Qwen3InstructAbl => {
+                ModelRepo::hub("Goekdeniz-Guelmez/Josiefied-Qwen3-4B-abliterated-v2")
+            }
         }
     }
 
     pub fn tokenizer_repo(&self) -> ModelRepo {
-        match self {
-            _ => self.model_repo(),
-        }
+        self.model_repo()
     }
 
     pub fn tokenizer_json_name(&self) -> &'static str {
-        match self {
-            _ => "tokenizer.json",
-        }
+        "tokenizer.json"
     }
 
     pub fn model_names(&self) -> &[&'static str] {
@@ -113,6 +104,10 @@ impl ModelType {
                     "model-00005-of-00005.safetensors",
                 ],
             },
+            ModelType::Qwen3Special | ModelType::Qwen3InstructAbl => &[
+                "model-00001-of-00002.safetensors",
+                "model-00002-of-00002.safetensors",
+            ],
             _ => &["model.safetensors"],
         }
     }
@@ -126,7 +121,7 @@ impl ModelType {
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen2(config)
             }
-            ModelType::Qwen3(_) | ModelType::Qwen3Special => {
+            ModelType::Qwen3(_) | ModelType::Qwen3Special | ModelType::Qwen3InstructAbl => {
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen3(config)
             }
@@ -138,16 +133,16 @@ impl ModelType {
     }
 
     /// Create a pipeline for this type of model.
-    pub fn create_pipeline(&self, config: &DynConfig, var: VarBuilder) -> Pipeline {
+    pub fn create_pipeline(&self, config: &DynConfig, var: VarBuilder) -> ModelPipeline {
         match self {
             ModelType::Qwen25Instruct => {
-                Pipeline::Qwen2(Qwen2::new(config.as_qwen2().unwrap(), var).unwrap())
+                ModelPipeline::Qwen2(Qwen2::new(config.as_qwen2().unwrap(), var).unwrap())
             }
-            ModelType::Qwen3(_) | ModelType::Qwen3Special => {
-                Pipeline::Qwen3(Qwen3::new(config.as_qwen3().unwrap(), var).unwrap())
+            ModelType::Qwen3(_) | ModelType::Qwen3Special | ModelType::Qwen3InstructAbl => {
+                ModelPipeline::Qwen3(Qwen3::new(config.as_qwen3().unwrap(), var).unwrap())
             }
             ModelType::Qwen3Vl(_) => {
-                Pipeline::Qwen3Vl(Qwen3Vl::new(config.as_qwen3_vl().unwrap(), var).unwrap())
+                ModelPipeline::Qwen3Vl(Box::new(Qwen3Vl::new(config.as_qwen3_vl().unwrap(), var).unwrap()))
             }
         }
     }
@@ -158,6 +153,7 @@ impl ModelType {
             ModelType::Qwen25Instruct
             | ModelType::Qwen3(_)
             | ModelType::Qwen3Special
+            | ModelType::Qwen3InstructAbl
             | ModelType::Qwen3Vl(_) => {
                 // Process logits for Qwen3 model
                 logits
@@ -173,14 +169,11 @@ impl ModelType {
 
     /// Creates a chat prompt meant for this type of Phi model.
     pub fn create_chat_prompt(&self, chat: &Chat, sender: &ChatRole, think: bool) -> String {
-        let mut prompt = match self {
-            // ModelType::PhiHermes => Self::create_phi_hermes_chat_prompt(chat),
-            _ => self.create_chatml_instruct_chat_prompt(
-                chat,
-                sender,
-                self.can_think() && think && self.use_think_in_prompt(),
-            ),
-        };
+        let mut prompt = self.create_chatml_instruct_chat_prompt(
+            chat,
+            sender,
+            self.can_think() && think && self.use_think_in_prompt(),
+        );
 
         // Think block
         if self.can_think() {
@@ -270,19 +263,17 @@ impl ModelType {
 
         // Start the final assistant section (response)
         prompt.push_str("<|im_start|>");
-        prompt.push_str(self.chat_role_name(&sender));
-        prompt.push_str("\n");
+        prompt.push_str(self.chat_role_name(sender));
+        prompt.push('\n');
 
         prompt
     }
 
     pub fn chat_role_name<'a>(&self, role: &'a ChatRole) -> &'a str {
-        match self {
-            _ => match role {
-                ChatRole::Model => "assistant",
-                ChatRole::User => "user",
-                ChatRole::Other(name) => name,
-            },
+        match role {
+            ChatRole::Model => "assistant",
+            ChatRole::User => "user",
+            ChatRole::Other(name) => name,
         }
     }
 }
@@ -294,6 +285,15 @@ pub enum ModelRepo {
 }
 
 impl ModelRepo {
+    pub fn hub(repo: impl Display) -> Self {
+        Self::Hub(repo.to_string())
+    }
+
+    pub fn local(path: impl Display) -> Self {
+        Self::Local(path.to_string())
+    }
+
+    /// Get the file paths for the given file names, either from the HuggingFace Hub or from the local filesystem depending on the repo type.
     pub fn file_paths(&self, file_names: &[&str], api: &Api) -> Vec<PathBuf> {
         match self {
             ModelRepo::Hub(repo) => {

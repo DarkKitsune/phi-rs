@@ -88,22 +88,23 @@ impl TokenString {
     pub fn into_vec(self) -> Vec<u32> {
         self.tokens
     }
+}
 
-    /// Decode the tokens into a new `String`
-    pub fn to_string(&self) -> String {
-        self.model.detokenize(&self.tokens)
+impl From<TokenString> for Vec<u32> {
+    fn from(token_string: TokenString) -> Self {
+        token_string.tokens
     }
 }
 
-impl Into<Vec<u32>> for TokenString {
-    fn into(self) -> Vec<u32> {
-        self.tokens
+impl From<TokenString> for String {
+    fn from(token_string: TokenString) -> Self {
+        token_string.model.detokenize(&token_string.tokens)
     }
 }
 
-impl Into<String> for TokenString {
-    fn into(self) -> String {
-        self.to_string()
+impl Display for TokenString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.model.detokenize(&self.tokens))
     }
 }
 
@@ -113,12 +114,6 @@ impl IntoIterator for TokenString {
 
     fn into_iter(self) -> Self::IntoIter {
         self.tokens.into_iter()
-    }
-}
-
-impl Display for TokenString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
     }
 }
 

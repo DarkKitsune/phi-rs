@@ -9,8 +9,8 @@ use candle_transformers::models::qwen3_vl::{Config as Qwen3VlConfig, Qwen3VLMode
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
-use ggmath::random::ToSeed;
 use hf_hub::api::sync::Api;
+use serde_json::Map;
 use tokenizers::Tokenizer;
 
 use crate::chat::{Chat, ChatRole};
@@ -40,11 +40,7 @@ impl Model {
             (false, Device::Cpu)
         };
 
-        let dtype = if is_cuda {
-            DType::BF16
-        } else {
-            DType::F32
-        };
+        let dtype = if is_cuda { DType::BF16 } else { DType::F32 };
 
         // Get the model repos
         let api = Api::new()?;
@@ -66,8 +62,7 @@ impl Model {
             .collect::<Vec<_>>();
 
         // Create VarBuilder
-        let vb =
-            unsafe { VarBuilder::from_mmaped_safetensors(&model_filenames, dtype, &device)? };
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&model_filenames, dtype, &device)? };
 
         // Create tokenizer
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
@@ -119,12 +114,11 @@ impl Model {
 
     pub(crate) fn detokenize(&self, tokens: impl AsRef<[u32]>) -> String {
         // Decode the tokens into a string
-        let text = self
+        self
             .tokenizer
             .decode(tokens.as_ref(), true)
             .map_err(E::msg)
-            .unwrap();
-        text
+            .unwrap()
     }
 
     /// Attempt to get the token for a given string
@@ -274,6 +268,15 @@ impl Model {
         )
     }
 
+    /// Execute a pipeline on the model, returning the final context as an output JSON map.
+    pub fn execute_pipeline(
+        &self,
+        pipeline: &crate::pipeline::Pipeline,
+        input: impl Into<Map<String, JsonValue>>,
+    ) -> Map<String, JsonValue> {
+        pipeline.execute(self, input)
+    }
+
     /// Predict the text which follows the given prompt.
     pub fn predict_next(
         &self,
@@ -344,385 +347,21 @@ impl Model {
 
         (results, so_far)
     }
-
-    /// Generate a string similar to the given example strings.
-    pub fn generate_similar(
-        &self,
-        desired_traits: impl Display,
-        examples: &[impl Display],
-        seed: u64,
-        temp: Option<f64>,
-    ) -> String {
-        const EXAMPLE_DROP_RATE: f64 = 0.25;
-        const MIN_EXAMPLES: usize = 3;
-
-        // Convert the examples to strings
-        let mut examples: Vec<String> = examples.iter().map(|e| e.to_string()).collect();
-
-        // If temp is provided, or EXAMPLE_DROP_RATE is larger than 0.0, shuffle the examples by sorting by random values generated from the seed
-        // This should help introduce more variety if desired
-        if temp.is_some() || EXAMPLE_DROP_RATE > 0.0 {
-            let mut example_drop_seed = seed;
-            examples.sort_by_key(|_| {
-                let key = example_drop_seed.into_random::<u32>();
-                example_drop_seed = example_drop_seed.wrapping_add(1);
-                key
-            });
-        }
-
-        // Optionally drop some of the examples based on EXAMPLE_DROP_RATE
-        if EXAMPLE_DROP_RATE > 0.0 {
-            // Calculate the number of examples to keep based on the drop rate
-            let number_to_keep = (((1.0 - EXAMPLE_DROP_RATE) * examples.len() as f64).floor()
-                as usize)
-                .max(MIN_EXAMPLES);
-
-            // Keep only the first `number_to_keep` examples
-            examples.truncate(number_to_keep);
-        }
-
-        // Create the chat with the desired traits and examples given as chat messages
-        let mut chat = Chat::new();
-        chat.add_message(
-            ChatRole::User,
-            format!(
-                "I'm looking for things that could be described as \"{}\". Please provide an example.",
-                desired_traits
-            ),
-        );
-        let mut first_example = true;
-        for example in examples {
-            // If this is not the first example, insert a user message asking for another example
-            if !first_example {
-                chat.add_message(ChatRole::User, "Please provide another.".to_string());
-            }
-            first_example = false;
-            chat.add_message(
-                ChatRole::Model,
-                format!("Here's an example like you described: [{}]", example),
-            );
-        }
-
-        // Set the response prefix to "[" to encourage generating a "]"
-        chat.set_response_prefix(Some("Here's an example like you described: [".to_string()));
-
-        self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 128)
-            .0
-            .complete(&["]", "\n"])
-            .0
-    }
-
-    /// Summarize a string using the model.
-    pub fn summarize(&self, text: impl AsRef<str>, seed: u64, temp: Option<f64>) -> String {
-        let text = text.as_ref().trim();
-        let mut chat = Chat::new();
-
-        // Set the system prompt to tell the model what its role should be
-        chat.set_system_prompt(
-            "You are an assistant whose job is to summarize text provided by the user. \
-            Keep it brief and concise and wrap in double quotes.",
-        );
-
-        // Add a user message asking the model to summarize the text
-        chat.add_message(
-            ChatRole::User,
-            format!("Please summarize the following text:\n{}", text),
-        );
-
-        // Set the response prefix to avoid extra fluff
-        chat.set_response_prefix(Some(
-            "Certainly, here is my summary of the text you provided!\nSummary:\"\n".to_string(),
-        ));
-
-        self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.0, 0)
-            .0
-            .complete(&["\"", "\n\n"])
-            .0
-    }
-
-    /// Summarize a string while forcing it into the given token count.
-    /// If summarizing to this size fails, attempts for 'attempts' times.
-    /// On a total failure, returns `None`.
-    pub fn try_summarize_to_tokens(
-        &self,
-        text: impl AsRef<str>,
-        token_count: usize,
-        seed: u64,
-        mut temp: f64,
-        attempts: usize,
-    ) -> Option<String> {
-        let text = text.as_ref();
-
-        // Look for a summary for `attempts` times
-        for attempt in 0..attempts {
-            // Attempt summarization and get token length
-            let summary = self.summarize(text, seed.wrapping_add(attempt as u64), Some(temp));
-            let summary_tokens = self.tokenize_str(&summary).len();
-
-            if summary_tokens <= token_count {
-                return Some(summary);
-            }
-
-            temp += 0.1;
-        }
-
-        None
-    }
-
-    /// Summarize a string while forcing it into the given token count.
-    /// If summarizing to this size fails, attempts for 'attempts' times.
-    /// On a total failure, forcefully truncates the summary to the given token count.
-    pub fn summarize_to_tokens(
-        &self,
-        text: impl AsRef<str>,
-        token_count: usize,
-        truncate_towards_end: bool,
-        seed: u64,
-        mut temp: f64,
-        attempts: usize,
-    ) -> String {
-        let text = text.as_ref();
-
-        // Look for a summary for `attempts` times
-        let mut summary = String::new();
-        for attempt in 0..attempts {
-            // Attempt summarization and get token length
-            summary = self.summarize(text, seed.wrapping_add(attempt as u64), Some(temp));
-            let summary_tokens = self.tokenize_str(&summary).len();
-
-            if summary_tokens <= token_count {
-                return summary;
-            }
-
-            temp += 0.1;
-        }
-
-        // If we couldn't get a summary within the token count, truncate the last summary
-        let mut tokens = self.tokenize_str(&summary);
-        if truncate_towards_end {
-            tokens.truncate_rev(token_count);
-        } else {
-            tokens.truncate(token_count);
-        }
-
-        let truncated = self.tokenize(tokens);
-        truncated.to_string()
-    }
-
-    /// Expand a string with more detail using the model.
-    pub fn expand(&self, text: impl AsRef<str>, seed: u64, temp: Option<f64>) -> String {
-        let text = text.as_ref();
-        let mut chat = Chat::new();
-
-        // Set the system prompt to tell the model what its role should be
-        chat.set_system_prompt(
-            "You are an assistant whose job is to rewrit and expand on passages of text.",
-        );
-
-        // Add a user message asking the model to expand the text
-        chat.add_message(
-            ChatRole::User,
-            format!(
-                "Please rewrite the following passage of text so that it is longer, more detailed, and more descriptive:\n\"{}\"",
-                text
-            ),
-        );
-
-        // Set the response prefix to avoid extra fluff
-        chat.set_response_prefix(Some(
-            "Certainly, here is the same text but longer and more detailed:\n\"".to_string(),
-        ));
-
-        self.chat(&chat, &ChatRole::Model, false, seed, temp, None, 1.1, 64)
-            .0
-            .complete(&["\"", "\n"])
-            .0
-    }
-
-    /// Given a list of items and a context string, try to choose the most appropriate item
-    /// based on the context.
-    /// Returns the chosen item (lowercased and trimmed) if successful, otherwise None.
-    pub fn try_choose_item(
-        &self,
-        desired_traits: impl Display,
-        items: impl IntoIterator<Item = impl Display>,
-        seed: u64,
-        temp: Option<f64>,
-        attempts: usize,
-    ) -> Option<String> {
-        // Make sure that seed + attempts doesn't overflow by subtracting u64::MAX / 2
-        let seed = if seed > u64::MAX - attempts as u64 {
-            seed - u64::MAX / 2
-        } else {
-            seed
-        };
-
-        // Create the chat with the context, desired traits, and items
-        let mut chat = Chat::new();
-
-        // Set the system prompt to tell the model what its role should be
-        chat.set_system_prompt(
-            "You are a helpful assistant. Your job is to listen to the user's description of \
-            desired traits and choose the most appropriate item from item_list based on those traits.",
-        );
-
-        // Trim and lowercase all the items
-        let items: Vec<_> = items
-            .into_iter()
-            .map(|item| JsonValue::String(item.to_string().trim().to_lowercase()))
-            .collect();
-
-        // Set the item list in extra data
-        chat.extra_data_mut()
-            .insert("item_list".to_string(), JsonValue::Array(items.clone()));
-
-        // Add the user's messages with the desired traits and items
-        chat.add_message(
-            ChatRole::User,
-            format!(
-                "Which item from item_list would you describe as \"{}\"?",
-                desired_traits
-            ),
-        );
-
-        // Set the response prefix to end with a " so the model generates another "
-        chat.set_response_prefix(Some(
-            "Certainly! I think the item from item_list which most closely matches the traits you described is \"".to_string(),
-        ));
-
-        // Create the prompt from the chat
-        let prompt = self
-            .model_type
-            .create_chat_prompt(&chat, &ChatRole::Model, false);
-
-        // Keep trying until the model chooses an item, incrementing the seed each time
-        // After each attempt, temperature is increased to encourage diversity
-        let mut temperature = temp.unwrap_or(0.0);
-        for seed in seed..seed + attempts as u64 {
-            // Clone the items
-            let mut possible_items = items.clone();
-
-            // Begin inference
-            let mut inference = self
-                .infer_iter(prompt.clone(), seed, Some(temperature), None, 1.0, 0)
-                .unwrap();
-
-            // Infer while possible_items > 1
-            let mut inferred = String::new();
-            while possible_items.len() > 1 {
-                // Attempt to get the next token and check if it matches any of the possible items
-                if let Some(next_token) = inference.next_token() {
-                    // Add the token to the inferred string
-                    inferred.push_str(&self.detokenize(&[next_token]));
-
-                    // Remove the item from the list if it doesn't begin with the inferred string
-                    let formatted = inferred.trim().to_lowercase();
-                    possible_items.retain(|item| item.as_str().unwrap().starts_with(&formatted));
-                }
-                // If there are no more tokens, empty the possible items and break
-                else {
-                    possible_items.clear();
-                    break;
-                }
-            }
-
-            // If there is only one item left, return it
-            if possible_items.len() == 1 {
-                return Some(possible_items.pop().unwrap().as_str().unwrap().to_string());
-            }
-
-            // Raise the temperature and try again
-            nudge_temperature(&mut temperature);
-        }
-
-        // Return the response
-        None
-    }
-
-    /// Ask the model a question about a JSON object.
-    pub fn ask_json(&self, json: JsonValue, question: &str) -> InferIter {
-        // Create a chat with the JSON object in the system prompt rather than extra data.
-        // This is because extra data may be expressed to the model in JSON format already.
-        let mut chat = Chat::new();
-        chat.set_system_prompt(format!(
-            "You are a helpful assistant and Javascript programmer who answers questions about \
-                the following JSON:\n{}",
-            serde_json::to_string_pretty(&json).unwrap()
-        ));
-        chat.add_message(ChatRole::User, question.to_string());
-
-        self.chat(&chat, &ChatRole::Model, false, 0, None, None, 1.0, 0)
-            .0
-    }
-
-    /// Ask the model to edit the given JSON object according to the provided instruction.
-    /// Tries to generate a new JSON object based on the provided instruction for `attempts` times.
-    pub fn edit_json(
-        &self,
-        json: JsonValue,
-        instruction: &str,
-        seed: u64,
-        temp: Option<f64>,
-        attempts: usize,
-    ) -> Option<JsonValue> {
-        // Create a chat with the JSON object in the system prompt rather than extra data.
-        // This is because extra data may be expressed to the model in JSON format already.
-        let mut chat = Chat::new();
-        chat.set_system_prompt(format!(
-            "You are a helpful assistant and Javascript programmer who is helping the user with \
-                the following JSON:\n{}",
-            serde_json::to_string_pretty(&json).unwrap()
-        ));
-        chat.add_message(
-            ChatRole::User,
-            format!(
-                "Please make the following changes to the above JSON:\n{}",
-                instruction
-            ),
-        );
-        chat.set_response_prefix(Some(
-            "Sure, here is the modified JSON as you requested:\n{".to_string(),
-        ));
-
-        let mut temperature = temp.unwrap_or(0.0);
-        for attempt in 0..attempts {
-            let response = format!(
-                "{{{}}}",
-                self.chat(
-                    &chat,
-                    &ChatRole::Model,
-                    false,
-                    seed.wrapping_add(attempt as u64),
-                    Some(temperature),
-                    None,
-                    1.0,
-                    0
-                )
-                .0
-                .complete_bracket('{', '}')
-            );
-            if let Ok(json) = serde_json::from_str::<JsonValue>(&response) {
-                return Some(json);
-            }
-            nudge_temperature(&mut temperature);
-        }
-        None
-    }
 }
 
 /// Contains a pipeline, could be one of multiple types.
-pub enum Pipeline {
+pub enum ModelPipeline {
     Qwen2(Qwen2),
     Qwen3(Qwen3),
-    Qwen3Vl(Qwen3Vl),
+    Qwen3Vl(Box<Qwen3Vl>),
 }
 
-impl Pipeline {
+impl ModelPipeline {
     pub fn forward(&mut self, xs: &Tensor, start_pos: usize, seq_len: usize) -> Tensor {
         match self {
-            Pipeline::Qwen2(qwen2) => qwen2.forward(xs, start_pos).unwrap(),
-            Pipeline::Qwen3(qwen3) => qwen3.forward(xs, start_pos).unwrap(),
-            Pipeline::Qwen3Vl(qwen3_vl) => qwen3_vl
+            ModelPipeline::Qwen2(qwen2) => qwen2.forward(xs, start_pos).unwrap(),
+            ModelPipeline::Qwen3(qwen3) => qwen3.forward(xs, start_pos).unwrap(),
+            ModelPipeline::Qwen3Vl(qwen3_vl) => qwen3_vl
                 .forward(
                     xs,
                     None,

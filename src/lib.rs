@@ -5,6 +5,7 @@ pub mod data;
 pub mod inference;
 pub mod model;
 pub mod model_type;
+pub mod pipeline;
 pub mod prelude;
 pub mod scene;
 pub mod token_string;
@@ -13,9 +14,55 @@ pub mod token_string;
 mod tests {
     use std::io::Write;
 
-    use serde_json::json;
-
     use crate::prelude::*;
+
+    #[test]
+    fn pipeline() {
+        const SEED: u64 = 46364;
+        const TEMP: f64 = 0.65;
+        const POEM_THEMES: &[&str] = &[
+            "a short detective mystery",
+            "a short space adventure",
+            "a short fantasy quest",
+        ];
+
+        // Create a new pipeline
+        let mut pipeline = Pipeline::new(SEED);
+
+        // Add a chat step to the pipeline which generates a poem based on the theme in {theme}
+        // And store the generated poem in the context under {poem}
+        pipeline.chat(
+            "poem",
+            "You are a creative and imaginative writer who writes rhyming poems based on themes. \
+                Use descriptive and engaging language but not too many long or obscure words. \
+                Make sure the poem rhymes and has a nice flow.",
+            [],
+            "Write a rhyming poem based on the following theme: {theme}",
+            "Here is the poem:\n",
+            [],
+            TEMP,
+        );
+
+        // Add a step to the pipeline which summarizes the poem in {poem} and stores the summary in the context under {summary}
+        pipeline.summarize("summary", "poem", Some("The summary must be a poem too.".to_string()));
+
+        // Create the model
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
+
+        // Execute the pipeline on the model for each poem theme and print the poem and summary outputs
+        for theme in POEM_THEMES {
+            let input = json_map! {
+                "theme" => theme,
+            };
+            let output = model.execute_pipeline(&pipeline, input);
+            let poem = output["poem"].as_str().unwrap();
+            let summary = output["summary"].as_str().unwrap();
+            println!(
+                "Theme: {}\n\nGenerated poem:\n{}\n\n\n\nSummarized version:\n{}\n\n\n\n------\n\n\n",
+                theme, poem, summary
+            );
+        }
+    }
 
     #[test]
     fn chat() {
@@ -185,108 +232,6 @@ mod tests {
     }
 
     #[test]
-    fn choose_items() {
-        const SEED: u64 = 32623;
-        const ATTEMPTS: usize = 7;
-
-        // Create the model
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
-
-        // Present choices to the model
-        let item = model.try_choose_item(
-            "a weapon for a knight",
-            ["horse", "sword", "potion", "compass", "bow", "shield"],
-            SEED,
-            None,
-            ATTEMPTS,
-        );
-        println!("Chose item: {:?}", item);
-
-        let item = model.try_choose_item(
-            "a soft toy",
-            ["snacks", "ball", "coloring book", "stuffed animal", "book"],
-            SEED,
-            None,
-            ATTEMPTS,
-        );
-        println!("Chose item: {:?}", item);
-
-        let item = model.try_choose_item(
-            "the base of spaghetti sauce",
-            [
-                "bell pepper",
-                "tomato",
-                "cayenne pepper",
-                "ghost pepper",
-                "potato",
-                "onion",
-                "garlic",
-                "pineapple",
-            ],
-            SEED,
-            None,
-            ATTEMPTS,
-        );
-        println!("Chose item: {:?}", item);
-    }
-
-    #[test]
-    fn generate_dog_sentences() {
-        const SEED: u64 = 246810;
-        const TEMP: f64 = 0.6;
-        const NUM_TO_GENERATE: usize = 7;
-        const DOG_EXAMPLES: &[&str] = &[
-            "The quick brown fox jumps over the lazy dog.",
-            "An agile, brown fox vaults over a lethargic canine creature.",
-            "A swift, brown fox hops over a sleepy dog.",
-            "One lazy dog was jumped over by a quick brown fox.",
-            "That fox just jumped over that dang dog!",
-            "From what I hear, the red fox that jumped over the dog was very quick.",
-            "The red fox quickly jumped over the sleeping dog, startling it awake.",
-        ];
-
-        // Create the model
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
-
-        // Start dog sentences
-        println!(
-            "Generating {} fox jumping over a dog sentences:",
-            NUM_TO_GENERATE
-        );
-
-        // Iterate and increment the seed to generate multiple similar sentences
-        for seed_add in 0..NUM_TO_GENERATE as u64 {
-            let generated = model.generate_similar(
-                "A sentence describing a fox jumping over a dog",
-                DOG_EXAMPLES,
-                SEED.wrapping_add(seed_add),
-                Some(TEMP),
-            );
-            println!("{}", generated);
-        }
-    }
-
-    #[test]
-    fn expand_and_summarize() {
-        const SEED: u64 = 75863;
-        const TEMP: f64 = 0.0;
-
-        // Create the model
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
-
-        let text = "Sally told me she saw that dang fox jump over the poor lazy dog again. A travesty, really. \
-            Maybe someone should do something about it?";
-
-        // Expand the text
-        let expanded = model.expand(text, SEED, Some(TEMP));
-        println!("\nExpanded text: {}", expanded);
-
-        // Summarize the text
-        let summary = model.summarize(&expanded, SEED, Some(TEMP));
-        println!("\nSummary: {}", summary);
-    }
-
-    #[test]
     fn predict_chain() {
         const SEED: u64 = 13579;
         const TEMP: f64 = 0.6;
@@ -352,62 +297,6 @@ mod tests {
         println!(
             "\nThoughts:\n{}\nRest:\n{}\n",
             thoughts.unwrap_or_default(),
-            result
-        );
-    }
-
-    #[test]
-    fn ask_json() {
-        const SEED: u64 = 635681;
-
-        // Create the model
-        let model = Model::new(ModelType::Qwen3(ModelSize::Medium), SEED, true).unwrap();
-
-        // Create a JSON object
-        let json = json!({
-            "name": "Alice",
-            "pets": [
-                {"type": "cat", "name": "Whiskers", "age": 3},
-                {"type": "dog", "name": "Fido", "age": 8},
-                {"type": "dog", "name": "Rex", "age": 5},
-            ],
-        });
-
-        // Ask the model a question about the JSON object
-        let result = model
-            .ask_json(json.clone(), "What is the name and age of Alice's cat?")
-            .complete(&[])
-            .0;
-
-        println!(
-            "What is the name and age of Alice's cat?\nResult:\n{}\n",
-            result
-        );
-
-        // Ask the model to add a new pet to Alice's list of pets
-        let json = model
-            .edit_json(
-                json,
-                "Add a new 3-year old parakeet named \"Crackers\" to the list of pets",
-                SEED,
-                None,
-                3,
-            )
-            .expect("Failed to parse JSON");
-
-        println!(
-            "JSON with parakeet added:\n{}\n",
-            serde_json::to_string_pretty(&json).unwrap()
-        );
-
-        // Ask the model how many birds are in Alice's list of pets
-        let result = model
-            .ask_json(json.clone(), "How many birds are in Alice's list of pets?")
-            .complete(&[])
-            .0;
-
-        println!(
-            "How many birds are in Alice's list of pets?\nResult:\n{}\n",
             result
         );
     }

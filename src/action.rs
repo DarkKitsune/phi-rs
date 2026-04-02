@@ -16,7 +16,10 @@ pub struct ActionPattern {
 
 impl ActionPattern {
     pub fn new(name: impl Display, arguments: Vec<(String, ArgType)>) -> Self {
-        Self { name: name.to_string(), arguments }
+        Self {
+            name: name.to_string(),
+            arguments,
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -49,7 +52,6 @@ impl ActionExtractor {
     ///
     /// Returns an error if the action pattern name is not a valid identifier
     /// or if an action pattern with the same name already exists.
-
     pub fn add_action_pattern(&mut self, pattern: ActionPattern) -> Result<()> {
         // Verify that the pattern name can be used as a function name
         if !pattern
@@ -90,7 +92,15 @@ impl ActionExtractor {
                 the given text.\n\n<functions>\n\n{}\n\n</functions>",
             self.patterns
                 .iter()
-                .map(|p| format!("function fn_{}({}) {{...}}", p.name().trim(), p.arguments().iter().map(|(name, ty)| format!("{}: {}", name, ty.typescript_type())).collect::<Vec<_>>().join(", "))) 
+                .map(|p| format!(
+                    "function fn_{}({}) {{...}}",
+                    p.name().trim(),
+                    p.arguments()
+                        .iter()
+                        .map(|(name, ty)| format!("{}: {}", name, ty.typescript_type()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
                 .collect::<Vec<_>>()
                 .join("\n\n")
         ));
@@ -209,5 +219,4 @@ impl ArgType {
             ArgType::Boolean => "boolean",
         }
     }
-
 }
