@@ -10,13 +10,25 @@ use hf_hub::api::sync::Api;
 use crate::chat::{Chat, ChatRole};
 use crate::model::{DynConfig, Pipeline};
 
+/// Represents the size of model to use.
+/// This is used to determine which model files to load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModelSize {
+    /// 0 - 3B parameters
+    Small,
+    /// 3B - 6B parameters
+    Medium,
+    /// 6B - 20B parameters
+    Large,
+}
+
 /// Represents the type of model to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModelType {
     Qwen25Instruct,
-    Qwen3,
+    Qwen3(ModelSize),
     Qwen3Special,
-    Qwen3Vl,
+    Qwen3Vl(ModelSize),
 }
 
 impl ModelType {
@@ -24,9 +36,9 @@ impl ModelType {
     pub fn can_chat(&self) -> bool {
         match self {
             ModelType::Qwen25Instruct
-            | ModelType::Qwen3
+            | ModelType::Qwen3(_)
             | ModelType::Qwen3Special
-            | ModelType::Qwen3Vl => true,
+            | ModelType::Qwen3Vl(_) => true,
         }
     }
 
@@ -34,16 +46,16 @@ impl ModelType {
     pub fn can_think(&self) -> bool {
         match self {
             ModelType::Qwen25Instruct
-            | ModelType::Qwen3
+            | ModelType::Qwen3(_)
             | ModelType::Qwen3Special
-            | ModelType::Qwen3Vl => true,
+            | ModelType::Qwen3Vl(_) => true,
         }
     }
 
     /// Returns true if this model requires the think tag to be present regardless.
     pub fn must_think(&self) -> bool {
         match self {
-            ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
+            ModelType::Qwen3(_) | ModelType::Qwen3Special | ModelType::Qwen3Vl(_) => true,
             _ => false,
         }
     }
@@ -51,7 +63,7 @@ impl ModelType {
     /// Returns true if this model needs "/think " in the prompt to enable thinking.
     pub fn use_think_in_prompt(&self) -> bool {
         match self {
-            ModelType::Qwen3 | ModelType::Qwen3Special | ModelType::Qwen3Vl => true,
+            ModelType::Qwen3(_) | ModelType::Qwen3Special | ModelType::Qwen3Vl(_) => true,
             _ => false,
         }
     }
@@ -59,18 +71,19 @@ impl ModelType {
     pub fn model_repo(&self) -> ModelRepo {
         match self {
             ModelType::Qwen25Instruct => ModelRepo::Hub("Qwen/Qwen2.5-1.5B-Instruct".to_string()),
-            ModelType::Qwen3 => ModelRepo::Hub("Qwen/Qwen3-1.7B".to_string()),
-            ModelType::Qwen3Vl => ModelRepo::Hub("Qwen/Qwen3-VL-2B-Instruct".to_string()),
+            ModelType::Qwen3(model_size) => match model_size {
+                ModelSize::Small => ModelRepo::Hub("Qwen/Qwen3-1.7B".to_string()),
+                ModelSize::Medium => ModelRepo::Hub("Qwen/Qwen3-4B".to_string()),
+                ModelSize::Large => ModelRepo::Hub("Qwen/Qwen3-8B".to_string()),
+            },
+            ModelType::Qwen3Vl(_) => ModelRepo::Hub("Qwen/Qwen3-VL-2B-Instruct".to_string()),
             ModelType::Qwen3Special => ModelRepo::Local("./model/qwen3-special-1.7b".to_string()),
         }
     }
 
     pub fn tokenizer_repo(&self) -> ModelRepo {
         match self {
-            ModelType::Qwen25Instruct => ModelRepo::Hub("Qwen/Qwen2.5-1.5B-Instruct".to_string()),
-            ModelType::Qwen3 => ModelRepo::Hub("Qwen/Qwen3-1.7B".to_string()),
-            ModelType::Qwen3Vl => ModelRepo::Hub("Qwen/Qwen3-VL-2B-Instruct".to_string()),
-            ModelType::Qwen3Special => ModelRepo::Local("./model/qwen3-special-1.7b".to_string()),
+            _ => self.model_repo(),
         }
     }
 
@@ -82,10 +95,24 @@ impl ModelType {
 
     pub fn model_names(&self) -> &[&'static str] {
         match self {
-            ModelType::Qwen3 => &[
-                "model-00001-of-00002.safetensors",
-                "model-00002-of-00002.safetensors",
-            ],
+            ModelType::Qwen3(model_size) => match model_size {
+                ModelSize::Small => &[
+                    "model-00001-of-00002.safetensors",
+                    "model-00002-of-00002.safetensors",
+                ],
+                ModelSize::Medium => &[
+                    "model-00001-of-00003.safetensors",
+                    "model-00002-of-00003.safetensors",
+                    "model-00003-of-00003.safetensors",
+                ],
+                ModelSize::Large => &[
+                    "model-00001-of-00005.safetensors",
+                    "model-00002-of-00005.safetensors",
+                    "model-00003-of-00005.safetensors",
+                    "model-00004-of-00005.safetensors",
+                    "model-00005-of-00005.safetensors",
+                ],
+            },
             _ => &["model.safetensors"],
         }
     }
@@ -99,11 +126,11 @@ impl ModelType {
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen2(config)
             }
-            ModelType::Qwen3 | ModelType::Qwen3Special => {
+            ModelType::Qwen3(_) | ModelType::Qwen3Special => {
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen3(config)
             }
-            ModelType::Qwen3Vl => {
+            ModelType::Qwen3Vl(_) => {
                 let config = serde_json::from_str(&config).unwrap();
                 DynConfig::Qwen3Vl(config)
             }
@@ -116,10 +143,10 @@ impl ModelType {
             ModelType::Qwen25Instruct => {
                 Pipeline::Qwen2(Qwen2::new(config.as_qwen2().unwrap(), var).unwrap())
             }
-            ModelType::Qwen3 | ModelType::Qwen3Special => {
+            ModelType::Qwen3(_) | ModelType::Qwen3Special => {
                 Pipeline::Qwen3(Qwen3::new(config.as_qwen3().unwrap(), var).unwrap())
             }
-            ModelType::Qwen3Vl => {
+            ModelType::Qwen3Vl(_) => {
                 Pipeline::Qwen3Vl(Qwen3Vl::new(config.as_qwen3_vl().unwrap(), var).unwrap())
             }
         }
@@ -129,9 +156,9 @@ impl ModelType {
     pub fn process_logits(&self, logits: Tensor) -> Tensor {
         match self {
             ModelType::Qwen25Instruct
-            | ModelType::Qwen3
+            | ModelType::Qwen3(_)
             | ModelType::Qwen3Special
-            | ModelType::Qwen3Vl => {
+            | ModelType::Qwen3Vl(_) => {
                 // Process logits for Qwen3 model
                 logits
                     .squeeze(0)

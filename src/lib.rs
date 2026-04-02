@@ -246,7 +246,7 @@ mod tests {
         ];
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
 
         // Start dog sentences
         println!(
@@ -334,7 +334,7 @@ mod tests {
         const TEMP: f64 = 0.6;
 
         // Create the model and chat
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3(ModelSize::Medium), SEED, true).unwrap();
 
         // Give the model a simple problem to think about
         let (result, thoughts) = model.instruct(
@@ -361,7 +361,7 @@ mod tests {
         const SEED: u64 = 635681;
 
         // Create the model
-        let model = Model::new(ModelType::Qwen3Special, SEED, true).unwrap();
+        let model = Model::new(ModelType::Qwen3(ModelSize::Medium), SEED, true).unwrap();
 
         // Create a JSON object
         let json = json!({

@@ -34,10 +34,16 @@ pub struct Model {
 
 impl Model {
     pub fn new(model_type: ModelType, seed: u64, use_cuda: bool) -> Result<Self> {
-        let device = if use_cuda && candle_core::utils::cuda_is_available() {
-            Device::new_cuda(0).unwrap()
+        let (is_cuda, device) = if use_cuda && candle_core::utils::cuda_is_available() {
+            (true, Device::new_cuda(0).unwrap())
         } else {
-            Device::Cpu
+            (false, Device::Cpu)
+        };
+
+        let dtype = if is_cuda {
+            DType::BF16
+        } else {
+            DType::F32
         };
 
         // Get the model repos
@@ -61,7 +67,7 @@ impl Model {
 
         // Create VarBuilder
         let vb =
-            unsafe { VarBuilder::from_mmaped_safetensors(&model_filenames, DType::F32, &device)? };
+            unsafe { VarBuilder::from_mmaped_safetensors(&model_filenames, dtype, &device)? };
 
         // Create tokenizer
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
